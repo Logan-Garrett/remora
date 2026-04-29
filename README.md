@@ -169,3 +169,21 @@ scp target/aarch64-unknown-linux-gnu/release/remora-server user@host:~/remora/
 | `GET` | `/sessions/:id` | WebSocket upgrade (query: `token`, `name`) |
 
 All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS).
+
+## Contributing
+
+PRs are welcome. Some areas that could use help:
+
+- **Docker sandbox** (M6) — per-session containers with network egress proxy
+- **Better streaming** — token-level streaming instead of per-turn
+- **IDE plugins** — VS Code, JetBrains, or other editors
+- **Web client** — browser-based alternative to the Neovim plugin
+- **OAuth/JWT auth** — replace the shared team token with proper user accounts
+- **Session persistence** — export workspace state, push branches before cleanup
+- **Tests** — unit and integration tests for the server
+
+Fork, branch, PR. No special process — just keep it clean and explain what you changed.
+
+## License
+
+MIT
