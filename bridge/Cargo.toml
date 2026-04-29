@@ -1,0 +1,17 @@
+[package]
+name = "remora-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "remora-bridge"
+path = "src/main.rs"
+
+[dependencies]
+remora-common = { path = "../common" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+url = "2"
