@@ -1,0 +1,17 @@
+FROM node:20-slim
+
+# Install Claude CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install common tools Claude might need
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user (Claude CLI blocks --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash remora
+RUN mkdir -p /workspace && chown remora:remora /workspace
+
+USER remora
+WORKDIR /workspace
+CMD ["sleep", "infinity"]

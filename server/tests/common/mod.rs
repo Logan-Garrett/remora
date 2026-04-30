@@ -60,6 +60,8 @@ impl TestServer {
             docker_image: "ubuntu:22.04".into(),
             skip_permissions: true,
             use_sandbox: false,
+            permission_mode: String::new(),
+            allowed_tools: vec![],
         };
 
         let state = AppState::new(db_arc.clone(), TEST_TOKEN.to_string(), config);

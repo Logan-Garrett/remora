@@ -3,29 +3,60 @@ use std::time::Duration;
 use tokio::process::Command;
 use uuid::Uuid;
 
+/// Docker image name for the sandbox. Built from Dockerfile.sandbox.
+const SANDBOX_IMAGE: &str = "remora-sandbox";
+
 /// Name for the docker container associated with a session.
 fn container_name(session_id: Uuid) -> String {
     format!("remora-{session_id}")
 }
 
+/// Build the sandbox Docker image if it doesn't exist.
+pub async fn ensure_image() -> anyhow::Result<()> {
+    // Check if image exists
+    let output = Command::new("docker")
+        .args(["image", "inspect", SANDBOX_IMAGE])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await?;
+
+    if output.success() {
+        return Ok(());
+    }
+
+    tracing::info!("building sandbox image '{SANDBOX_IMAGE}' from Dockerfile.sandbox...");
+
+    // Find the Dockerfile — look relative to the server binary, then cwd
+    let dockerfile = find_dockerfile().await?;
+
+    let output = Command::new("docker")
+        .args(["build", "-t", SANDBOX_IMAGE, "-f", &dockerfile, "."])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("failed to build sandbox image: {stderr}");
+    }
+
+    tracing::info!("sandbox image built successfully");
+    Ok(())
+}
+
 /// Create a docker sandbox for a session.
-/// The container runs the specified image with:
-/// - Workspace mounted at /workspace
-/// - CPU, memory, and PID limits
-/// - No network by default (can be changed for fetch proxy)
-/// - Claude CLI available inside via bind-mount of host's npm global
 pub async fn create_sandbox(
     session_id: Uuid,
     workspace_path: &Path,
-    docker_image: &str,
+    _docker_image: &str, // unused now — we use SANDBOX_IMAGE
 ) -> anyhow::Result<()> {
+    // Ensure the sandbox image is built
+    ensure_image().await?;
+
     let name = container_name(session_id);
     let workspace = workspace_path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("non-utf8 workspace path"))?;
-
-    // Find host Claude CLI path for bind-mount
-    let claude_path = find_claude_path().await;
 
     let mut create_args = vec![
         "create".to_string(),
@@ -36,50 +67,27 @@ pub async fn create_sandbox(
         "--memory".to_string(),
         "2g".to_string(),
         "--pids-limit".to_string(),
-        "256".to_string(),
-        // Mount workspace
+        "512".to_string(),
         "-v".to_string(),
         format!("{workspace}:/workspace"),
         "-w".to_string(),
         "/workspace".to_string(),
     ];
 
-    // If we found Claude CLI, bind-mount it into the container
-    if let Some(ref claude_dir) = claude_path {
-        create_args.extend(["-v".to_string(), format!("{claude_dir}:{claude_dir}:ro")]);
-        // Also mount the Claude config directory for auth
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-        let claude_config = format!("{home}/.claude");
-        if tokio::fs::metadata(&claude_config).await.is_ok() {
-            create_args.extend([
-                "-v".to_string(),
-                format!("{claude_config}:/root/.claude:ro"),
-            ]);
-        }
-        // Mount node_modules for Claude's dependencies
-        let node_path = find_node_path().await;
-        if let Some(ref np) = node_path {
-            create_args.extend([
-                "-v".to_string(),
-                format!("{np}:{np}:ro"),
-                "-e".to_string(),
-                format!("PATH={claude_dir}:{np}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
-            ]);
-        } else {
-            create_args.extend([
-                "-e".to_string(),
-                format!("PATH={claude_dir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
-            ]);
-        }
+    // Pass API key into the container (required for sandbox auth).
+    // Claude Code's OAuth session can't be exported to containers —
+    // an ANTHROPIC_API_KEY is the only reliable auth method for sandboxed runs.
+    if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
+        create_args.extend(["-e".to_string(), format!("ANTHROPIC_API_KEY={api_key}")]);
+    } else {
+        tracing::warn!(
+            "ANTHROPIC_API_KEY not set — Claude inside the sandbox may not be able to authenticate. \
+             Set ANTHROPIC_API_KEY or disable sandbox (REMORA_USE_SANDBOX=false)."
+        );
     }
 
-    // Allow network access (needed for Claude API calls)
-    // For production, this should use a proxy for fetch allowlist enforcement
-    create_args.extend([
-        docker_image.to_string(),
-        "sleep".to_string(),
-        "infinity".to_string(),
-    ]);
+    // Use the pre-built sandbox image (has Claude + Node installed)
+    create_args.push(SANDBOX_IMAGE.to_string());
 
     let output = Command::new("docker").args(&create_args).output().await?;
 
@@ -103,7 +111,7 @@ pub async fn create_sandbox(
     Ok(())
 }
 
-/// Execute a command in the session's sandbox with a timeout, streaming stdout line by line.
+/// Execute a command in the session's sandbox, returning the child process for streaming.
 pub async fn exec_in_sandbox(
     session_id: Uuid,
     cmd: &[&str],
@@ -147,7 +155,6 @@ pub async fn ensure_sandbox(
 ) -> anyhow::Result<()> {
     let name = container_name(session_id);
 
-    // Check if container exists and is running
     let output = Command::new("docker")
         .args(["inspect", "--format", "{{.State.Status}}", &name])
         .output()
@@ -158,7 +165,6 @@ pub async fn ensure_sandbox(
         if status == "running" {
             return Ok(());
         }
-        // Container exists but not running, start it
         if status == "created" || status == "exited" {
             let start = Command::new("docker")
                 .args(["start", &name])
@@ -168,7 +174,6 @@ pub async fn ensure_sandbox(
                 return Ok(());
             }
         }
-        // Remove and recreate
         let _ = destroy_sandbox(session_id).await;
     }
 
@@ -176,54 +181,33 @@ pub async fn ensure_sandbox(
 }
 
 /// Check if a sandbox container exists for a session.
+#[allow(dead_code)]
 pub async fn sandbox_exists(session_id: Uuid) -> bool {
     let name = container_name(session_id);
-    let output = Command::new("docker")
+    Command::new("docker")
         .args(["inspect", "--format", "{{.State.Status}}", &name])
-        .output()
-        .await;
-    match output {
-        Ok(o) => o.status.success(),
-        Err(_) => false,
-    }
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
-/// Get the status of a sandbox container.
-pub async fn sandbox_status(session_id: Uuid) -> String {
-    let name = container_name(session_id);
-    let output = Command::new("docker")
-        .args(["inspect", "--format", "{{.State.Status}}", &name])
-        .output()
-        .await;
-    match output {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        _ => "not found".to_string(),
+/// Find the Dockerfile.sandbox in likely locations.
+async fn find_dockerfile() -> anyhow::Result<String> {
+    let candidates = [
+        "Dockerfile.sandbox",
+        "../Dockerfile.sandbox",
+        "../../Dockerfile.sandbox",
+    ];
+    for path in &candidates {
+        if tokio::fs::metadata(path).await.is_ok() {
+            return Ok(path.to_string());
+        }
     }
-}
-
-/// Find the directory containing the Claude CLI binary on the host.
-async fn find_claude_path() -> Option<String> {
-    let output = Command::new("which").arg("claude").output().await.ok()?;
-    if output.status.success() {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        // Return the directory containing the binary
-        std::path::Path::new(&path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-    } else {
-        None
-    }
-}
-
-/// Find the Node.js binary directory on the host.
-async fn find_node_path() -> Option<String> {
-    let output = Command::new("which").arg("node").output().await.ok()?;
-    if output.status.success() {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        std::path::Path::new(&path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-    } else {
-        None
-    }
+    anyhow::bail!(
+        "Dockerfile.sandbox not found. Build the image manually: \
+         docker build -t remora-sandbox -f Dockerfile.sandbox ."
+    )
 }

@@ -82,10 +82,23 @@ pub async fn run_claude(
     let claude_cmd = &state.config.claude_cmd;
     let timeout = Duration::from_secs(state.config.run_timeout_secs);
 
-    // Build Claude args
+    // Build Claude args — permission handling:
+    // 1. skip_permissions=true → --dangerously-skip-permissions (legacy, not allowed as root)
+    // 2. permission_mode set → --permission-mode <mode> (e.g. "auto", "acceptEdits")
+    // 3. allowed_tools set → --allowedTools <tools> (fine-grained control)
+    // 4. none of the above → Claude runs with default interactive permissions (will hang in non-TTY)
     let mut claude_args: Vec<String> = Vec::new();
     if state.config.skip_permissions {
         claude_args.push("--dangerously-skip-permissions".into());
+    } else if !state.config.permission_mode.is_empty() {
+        claude_args.extend([
+            "--permission-mode".into(),
+            state.config.permission_mode.clone(),
+        ]);
+    }
+    if !state.config.allowed_tools.is_empty() {
+        claude_args.push("--allowedTools".into());
+        claude_args.push(state.config.allowed_tools.join(" "));
     }
     claude_args.extend([
         "-p".into(),
