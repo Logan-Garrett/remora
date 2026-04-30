@@ -77,45 +77,90 @@ pub async fn run_claude(
         return Ok(());
     }
 
-    // Run Claude CLI directly on the host, with CWD set to the session workspace
+    // Run Claude CLI — either in sandbox container or directly on host
     let workspace_path = state.config.workspace_dir.join(session_id.to_string());
     let claude_cmd = &state.config.claude_cmd;
     let timeout = Duration::from_secs(state.config.run_timeout_secs);
 
-    // Build args, conditionally including --dangerously-skip-permissions
-    let mut args: Vec<&str> = Vec::new();
+    // Build Claude args
+    let mut claude_args: Vec<String> = Vec::new();
     if state.config.skip_permissions {
-        args.push("--dangerously-skip-permissions");
+        claude_args.push("--dangerously-skip-permissions".into());
     }
-    args.extend_from_slice(&[
-        "-p",
-        &prompt,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--max-turns",
-        "5",
+    claude_args.extend([
+        "-p".into(),
+        prompt.clone(),
+        "--output-format".into(),
+        "stream-json".into(),
+        "--verbose".into(),
+        "--max-turns".into(),
+        "5".into(),
     ]);
 
-    let mut child = match tokio::process::Command::new(claude_cmd)
-        .args(&args)
-        .current_dir(&workspace_path)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(e) => {
+    let mut child = if state.config.use_sandbox {
+        // Ensure sandbox container exists
+        if let Err(e) =
+            crate::sandbox::ensure_sandbox(session_id, &workspace_path, &state.config.docker_image)
+                .await
+        {
             let _ = db.finish_run(run_id, "failed").await;
             insert_event(
                 db,
                 session_id,
                 "system",
                 "system",
-                serde_json::json!({"text": format!("Failed to start Claude: {e}")}),
+                serde_json::json!({"text": format!("Failed to create sandbox: {e}")}),
             )
             .await?;
             return Ok(());
+        }
+
+        insert_event(
+            db, session_id, "system", "system",
+            serde_json::json!({"text": format!("Sandbox container running for session {session_id}")}),
+        ).await?;
+
+        // Build docker exec command
+        let mut exec_args: Vec<&str> = vec![claude_cmd.as_str()];
+        exec_args.extend(claude_args.iter().map(|s| s.as_str()));
+
+        match crate::sandbox::exec_in_sandbox(session_id, &exec_args, timeout).await {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = db.finish_run(run_id, "failed").await;
+                insert_event(
+                    db,
+                    session_id,
+                    "system",
+                    "system",
+                    serde_json::json!({"text": format!("Failed to exec in sandbox: {e}")}),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+    } else {
+        // Run directly on host
+        match tokio::process::Command::new(claude_cmd)
+            .args(claude_args.iter().map(|s| s.as_str()))
+            .current_dir(&workspace_path)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = db.finish_run(run_id, "failed").await;
+                insert_event(
+                    db,
+                    session_id,
+                    "system",
+                    "system",
+                    serde_json::json!({"text": format!("Failed to start Claude: {e}")}),
+                )
+                .await?;
+                return Ok(());
+            }
         }
     };
 
