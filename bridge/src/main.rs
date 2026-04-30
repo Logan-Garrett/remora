@@ -12,7 +12,9 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::main]
 async fn main() {
-    let url = std::env::args().nth(1).expect("usage: remora-bridge <ws-url>");
+    let url = std::env::args()
+        .nth(1)
+        .expect("usage: remora-bridge <ws-url>");
 
     let (ws, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -25,7 +27,7 @@ async fn main() {
         let reader = BufReader::new(tokio::io::stdin());
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            if sink.send(Message::Text(line.into())).await.is_err() {
+            if sink.send(Message::Text(line)).await.is_err() {
                 break;
             }
         }

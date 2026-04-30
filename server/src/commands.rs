@@ -1,5 +1,6 @@
 use crate::claude;
 use crate::context::ContextMode;
+use crate::db::Database;
 use crate::fetch;
 use crate::state::AppState;
 use crate::ws::insert_event;
@@ -9,28 +10,42 @@ use uuid::Uuid;
 
 /// Dispatch a client message to the appropriate handler.
 /// Each handler inserts events into the DB (which triggers NOTIFY -> broadcast).
-pub async fn dispatch(
-    state: Arc<AppState>,
-    session_id: Uuid,
-    msg: ClientMsg,
-) {
+pub async fn dispatch(state: Arc<AppState>, session_id: Uuid, msg: ClientMsg) {
     let result = match msg {
         ClientMsg::Chat { author, text } => handle_chat(&state, session_id, &author, &text).await,
-        ClientMsg::Run { author } => handle_run(state.clone(), session_id, &author, ContextMode::SinceLast).await,
-        ClientMsg::RunAll { author } => handle_run(state.clone(), session_id, &author, ContextMode::Full).await,
+        ClientMsg::Run { author } => {
+            handle_run(state.clone(), session_id, &author, ContextMode::SinceLast).await
+        }
+        ClientMsg::RunAll { author } => {
+            handle_run(state.clone(), session_id, &author, ContextMode::Full).await
+        }
         ClientMsg::Clear { author } => handle_clear(&state, session_id, &author).await,
         ClientMsg::Add { author, path } => handle_add(&state, session_id, &author, &path).await,
         ClientMsg::Diff { author } => handle_diff(&state, session_id, &author).await,
         ClientMsg::Fetch { author, url } => handle_fetch(&state, session_id, &author, &url).await,
-        ClientMsg::RepoAdd { author, git_url } => handle_repo_add(&state, session_id, &author, &git_url).await,
-        ClientMsg::RepoRemove { author, name } => handle_repo_remove(&state, session_id, &author, &name).await,
+        ClientMsg::RepoAdd { author, git_url } => {
+            handle_repo_add(&state, session_id, &author, &git_url).await
+        }
+        ClientMsg::RepoRemove { author, name } => {
+            handle_repo_remove(&state, session_id, &author, &name).await
+        }
         ClientMsg::RepoList { author } => handle_repo_list(&state, session_id, &author).await,
         ClientMsg::Allowlist { author } => handle_allowlist(&state, session_id, &author).await,
-        ClientMsg::AllowlistAdd { author, domain } => handle_allowlist_add(&state, session_id, &author, &domain).await,
-        ClientMsg::AllowlistRemove { author, domain } => handle_allowlist_remove(&state, session_id, &author, &domain).await,
-        ClientMsg::Approve { author, domain, approved } => handle_approve(&state, session_id, &author, &domain, approved).await,
+        ClientMsg::AllowlistAdd { author, domain } => {
+            handle_allowlist_add(&state, session_id, &author, &domain).await
+        }
+        ClientMsg::AllowlistRemove { author, domain } => {
+            handle_allowlist_remove(&state, session_id, &author, &domain).await
+        }
+        ClientMsg::Approve {
+            author,
+            domain,
+            approved,
+        } => handle_approve(&state, session_id, &author, &domain, approved).await,
         ClientMsg::Who { author } => handle_who(&state, session_id, &author).await,
-        ClientMsg::Kick { author, target } => handle_kick(&state, session_id, &author, &target).await,
+        ClientMsg::Kick { author, target } => {
+            handle_kick(&state, session_id, &author, &target).await
+        }
         ClientMsg::SessionInfo { author } => handle_session_info(&state, session_id, &author).await,
     };
 
@@ -63,10 +78,7 @@ async fn handle_chat(
     .await?;
 
     // Update idle_since
-    let _ = sqlx::query("UPDATE sessions SET idle_since = NULL WHERE id = $1")
-        .bind(session_id)
-        .execute(&state.db)
-        .await;
+    let _ = state.db.clear_idle_since(session_id).await;
 
     Ok(())
 }
@@ -97,11 +109,7 @@ async fn handle_run(
     Ok(())
 }
 
-async fn handle_clear(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
+async fn handle_clear(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
     insert_event(
         &state.db,
         session_id,
@@ -138,7 +146,9 @@ async fn handle_add(
         }
     };
 
-    let canonical_workspace = tokio::fs::canonicalize(&workspace).await.unwrap_or(workspace);
+    let canonical_workspace = tokio::fs::canonicalize(&workspace)
+        .await
+        .unwrap_or(workspace);
     if !canonical.starts_with(&canonical_workspace) {
         insert_event(
             &state.db,
@@ -177,24 +187,15 @@ async fn handle_add(
     Ok(())
 }
 
-async fn handle_diff(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
+async fn handle_diff(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
     let workspace = state.config.workspace_dir.join(session_id.to_string());
 
     // Get repos for the session
-    let repos = sqlx::query_as::<_, (String,)>(
-        "SELECT name FROM session_repos WHERE session_id = $1",
-    )
-    .bind(session_id)
-    .fetch_all(&state.db)
-    .await?;
+    let repo_names = state.db.list_repo_names(session_id).await?;
 
     let mut all_diffs = Vec::new();
 
-    if repos.is_empty() {
+    if repo_names.is_empty() {
         // Try running diff in the workspace root
         let output = tokio::process::Command::new("git")
             .args(["diff"])
@@ -209,7 +210,7 @@ async fn handle_diff(
             }
         }
     } else {
-        for (repo_name,) in repos {
+        for repo_name in repo_names {
             let repo_dir = workspace.join(&repo_name);
             let output = tokio::process::Command::new("git")
                 .args(["diff"])
@@ -280,30 +281,28 @@ async fn handle_fetch(
         fetch::DomainStatus::NeedsApproval => {
             fetch::create_approval_request(&state.db, session_id, &domain, url, author).await?;
         }
-        fetch::DomainStatus::Allowed => {
-            match fetch::fetch_url(url).await {
-                Ok(content) => {
-                    insert_event(
-                        &state.db,
-                        session_id,
-                        author,
-                        "fetch",
-                        serde_json::json!({"url": url, "content": content}),
-                    )
-                    .await?;
-                }
-                Err(e) => {
-                    insert_event(
-                        &state.db,
-                        session_id,
-                        "system",
-                        "system",
-                        serde_json::json!({"text": format!("Fetch failed: {e}")}),
-                    )
-                    .await?;
-                }
+        fetch::DomainStatus::Allowed => match fetch::fetch_url(url).await {
+            Ok(content) => {
+                insert_event(
+                    &state.db,
+                    session_id,
+                    author,
+                    "fetch",
+                    serde_json::json!({"url": url, "content": content}),
+                )
+                .await?;
             }
-        }
+            Err(e) => {
+                insert_event(
+                    &state.db,
+                    session_id,
+                    "system",
+                    "system",
+                    serde_json::json!({"text": format!("Fetch failed: {e}")}),
+                )
+                .await?;
+            }
+        },
     }
 
     Ok(())
@@ -348,15 +347,7 @@ async fn handle_repo_add(
     }
 
     // Insert into session_repos
-    sqlx::query(
-        "INSERT INTO session_repos (session_id, name, git_url) VALUES ($1, $2, $3) \
-         ON CONFLICT (session_id, name) DO UPDATE SET git_url = $3",
-    )
-    .bind(session_id)
-    .bind(&name)
-    .bind(git_url)
-    .execute(&state.db)
-    .await?;
+    state.db.upsert_repo(session_id, &name, git_url).await?;
 
     insert_event(
         &state.db,
@@ -384,11 +375,7 @@ async fn handle_repo_remove(
     }
 
     // Remove from session_repos
-    sqlx::query("DELETE FROM session_repos WHERE session_id = $1 AND name = $2")
-        .bind(session_id)
-        .bind(name)
-        .execute(&state.db)
-        .await?;
+    state.db.delete_repo(session_id, name).await?;
 
     insert_event(
         &state.db,
@@ -401,17 +388,8 @@ async fn handle_repo_remove(
     Ok(())
 }
 
-async fn handle_repo_list(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
-    let repos = sqlx::query_as::<_, (String, String)>(
-        "SELECT name, git_url FROM session_repos WHERE session_id = $1 ORDER BY name",
-    )
-    .bind(session_id)
-    .fetch_all(&state.db)
-    .await?;
+async fn handle_repo_list(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
+    let repos = state.db.list_repos(session_id).await?;
 
     let text = if repos.is_empty() {
         "No repos in this session.".to_string()
@@ -434,23 +412,9 @@ async fn handle_repo_list(
     Ok(())
 }
 
-async fn handle_allowlist(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
-    let global = sqlx::query_as::<_, (String, String)>(
-        "SELECT domain, kind FROM global_allowlist ORDER BY domain",
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let session_entries = sqlx::query_as::<_, (String,)>(
-        "SELECT domain FROM session_allowlist WHERE session_id = $1 ORDER BY domain",
-    )
-    .bind(session_id)
-    .fetch_all(&state.db)
-    .await?;
+async fn handle_allowlist(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
+    let global = state.db.list_global_allowlist().await?;
+    let session_entries = state.db.list_session_allowlist(session_id).await?;
 
     let mut text = String::from("Global allowlist:\n");
     if global.is_empty() {
@@ -464,7 +428,7 @@ async fn handle_allowlist(
     if session_entries.is_empty() {
         text.push_str("  (empty)\n");
     } else {
-        for (domain,) in &session_entries {
+        for domain in &session_entries {
             text.push_str(&format!("  {domain}\n"));
         }
     }
@@ -486,14 +450,7 @@ async fn handle_allowlist_add(
     author: &str,
     domain: &str,
 ) -> anyhow::Result<()> {
-    sqlx::query(
-        "INSERT INTO session_allowlist (session_id, domain) VALUES ($1, $2) \
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(session_id)
-    .bind(domain)
-    .execute(&state.db)
-    .await?;
+    state.db.add_session_allowlist(session_id, domain).await?;
 
     insert_event(
         &state.db,
@@ -512,10 +469,9 @@ async fn handle_allowlist_remove(
     author: &str,
     domain: &str,
 ) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM session_allowlist WHERE session_id = $1 AND domain = $2")
-        .bind(session_id)
-        .bind(domain)
-        .execute(&state.db)
+    state
+        .db
+        .remove_session_allowlist(session_id, domain)
         .await?;
 
     insert_event(
@@ -550,14 +506,7 @@ async fn handle_approve(
 
     // If approved, proceed with any pending fetches for this domain
     if approved {
-        let pending = sqlx::query_as::<_, (String, String)>(
-            "SELECT url, requested_by FROM pending_approvals \
-             WHERE session_id = $1 AND domain = $2 AND approved = true",
-        )
-        .bind(session_id)
-        .bind(domain)
-        .fetch_all(&state.db)
-        .await?;
+        let pending = state.db.get_approved_pending(session_id, domain).await?;
 
         for (url, requested_by) in pending {
             match fetch::fetch_url(&url).await {
@@ -588,11 +537,7 @@ async fn handle_approve(
     Ok(())
 }
 
-async fn handle_who(
-    state: &AppState,
-    session_id: Uuid,
-    _author: &str,
-) -> anyhow::Result<()> {
+async fn handle_who(state: &AppState, session_id: Uuid, _author: &str) -> anyhow::Result<()> {
     let participants = state.get_participants(session_id).await;
     let text = if participants.is_empty() {
         "No participants connected.".to_string()
@@ -638,27 +583,14 @@ async fn handle_session_info(
     session_id: Uuid,
     _author: &str,
 ) -> anyhow::Result<()> {
-    let row = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, i64, i64)>(
-        "SELECT description, created_at, COALESCE(tokens_used_today, 0), COALESCE(daily_token_cap, 1000000) \
-         FROM sessions WHERE id = $1",
-    )
-    .bind(session_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let row = state.db.get_session_info(session_id).await?;
 
     let text = match row {
         Some((desc, created, used, cap)) => {
             let participants = state.get_participants(session_id).await;
             let run_in_flight = state.is_run_in_flight(session_id).await;
 
-            let repos = sqlx::query_as::<_, (String,)>(
-                "SELECT name FROM session_repos WHERE session_id = $1",
-            )
-            .bind(session_id)
-            .fetch_all(&state.db)
-            .await?;
-
-            let repo_names: Vec<_> = repos.into_iter().map(|(n,)| n).collect();
+            let repo_names = state.db.list_repo_names(session_id).await?;
 
             format!(
                 "Session: {session_id}\n\
@@ -668,8 +600,16 @@ async fn handle_session_info(
                  Repos: {}\n\
                  Participants: {}\n\
                  Run in flight: {run_in_flight}",
-                if repo_names.is_empty() { "(none)".to_string() } else { repo_names.join(", ") },
-                if participants.is_empty() { "(none)".to_string() } else { participants.join(", ") }
+                if repo_names.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    repo_names.join(", ")
+                },
+                if participants.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    participants.join(", ")
+                }
             )
         }
         None => "Session not found.".to_string(),

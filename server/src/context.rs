@@ -1,4 +1,5 @@
-use sqlx::PgPool;
+use crate::db::{Database, DatabaseBackend};
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Context assembly mode.
@@ -21,37 +22,16 @@ impl ContextMode {
 
 /// Assemble a prompt string from the session's event history.
 pub async fn assemble_context(
-    db: &PgPool,
+    db: &Arc<DatabaseBackend>,
     session_id: Uuid,
     mode: ContextMode,
 ) -> anyhow::Result<String> {
     let min_id = match mode {
         ContextMode::Full => 0i64,
-        ContextMode::SinceLast => {
-            // Find the id of the last clear_marker or claude_response
-            let row = sqlx::query_scalar::<_, i64>(
-                "SELECT COALESCE(
-                    (SELECT MAX(id) FROM events
-                     WHERE session_id = $1 AND kind IN ('claude_response', 'clear_marker')),
-                    0
-                )",
-            )
-            .bind(session_id)
-            .fetch_one(db)
-            .await?;
-            row
-        }
+        ContextMode::SinceLast => db.get_last_context_boundary(session_id).await?,
     };
 
-    let rows = sqlx::query_as::<_, (i64, Option<String>, String, serde_json::Value)>(
-        "SELECT id, author, kind, payload FROM events \
-         WHERE session_id = $1 AND id > $2 \
-         ORDER BY id",
-    )
-    .bind(session_id)
-    .bind(min_id)
-    .fetch_all(db)
-    .await?;
+    let rows = db.get_events_since(session_id, min_id).await?;
 
     let mut parts = Vec::new();
 
@@ -68,10 +48,7 @@ pub async fn assemble_context(
 fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String {
     match kind {
         "chat" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             format!("[{author}]: {text}")
         }
         "file" => {
@@ -101,17 +78,11 @@ fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String
             )
         }
         "diff" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             text.to_string()
         }
         "claude_response" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             format!("[Claude]: {text}")
         }
         "tool_call" => {
@@ -126,17 +97,11 @@ fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String
             format!("[Claude tool_call]: {tool}({args})")
         }
         "tool_result" => {
-            let output = payload
-                .get("output")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let output = payload.get("output").and_then(|v| v.as_str()).unwrap_or("");
             format!("[tool_result]: {output}")
         }
         "system" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             format!("[system]: {text}")
         }
         _ => String::new(),

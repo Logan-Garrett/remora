@@ -1,4 +1,5 @@
 use crate::context::{self, ContextMode};
+use crate::db::Database;
 use crate::quota;
 use crate::state::AppState;
 use crate::ws::insert_event;
@@ -43,35 +44,36 @@ pub async fn run_claude(
     }
 
     // Insert run record
-    let run_id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO session_runs (session_id, status, context_mode) \
-         VALUES ($1, 'running', $2) RETURNING id",
-    )
-    .bind(session_id)
-    .bind(context_mode.as_str())
-    .fetch_one(db)
-    .await?;
+    let run_id = db.insert_run(session_id, context_mode.as_str()).await?;
 
     // Assemble context
     let prompt = match context::assemble_context(db, session_id, context_mode).await {
         Ok(p) => p,
         Err(e) => {
             tracing::error!("failed to assemble context for session {session_id}: {e}");
-            let _ = finish_run(db, run_id, "failed").await;
+            let _ = db.finish_run(run_id, "failed").await;
             insert_event(
-                db, session_id, "system", "system",
+                db,
+                session_id,
+                "system",
+                "system",
                 serde_json::json!({"text": format!("Failed to assemble context: {e}")}),
-            ).await?;
+            )
+            .await?;
             return Ok(());
         }
     };
 
     if prompt.trim().is_empty() {
-        let _ = finish_run(db, run_id, "completed").await;
+        let _ = db.finish_run(run_id, "completed").await;
         insert_event(
-            db, session_id, "system", "system",
+            db,
+            session_id,
+            "system",
+            "system",
             serde_json::json!({"text": "No context to send to Claude."}),
-        ).await?;
+        )
+        .await?;
         return Ok(());
     }
 
@@ -80,17 +82,23 @@ pub async fn run_claude(
     let claude_cmd = &state.config.claude_cmd;
     let timeout = Duration::from_secs(state.config.run_timeout_secs);
 
+    // Build args, conditionally including --dangerously-skip-permissions
+    let mut args: Vec<&str> = Vec::new();
+    if state.config.skip_permissions {
+        args.push("--dangerously-skip-permissions");
+    }
+    args.extend_from_slice(&[
+        "-p",
+        &prompt,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--max-turns",
+        "5",
+    ]);
+
     let mut child = match tokio::process::Command::new(claude_cmd)
-        .args([
-            "--dangerously-skip-permissions",
-            "-p",
-            &prompt,
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--max-turns",
-            "5",
-        ])
+        .args(&args)
         .current_dir(&workspace_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -98,11 +106,15 @@ pub async fn run_claude(
     {
         Ok(child) => child,
         Err(e) => {
-            let _ = finish_run(db, run_id, "failed").await;
+            let _ = db.finish_run(run_id, "failed").await;
             insert_event(
-                db, session_id, "system", "system",
+                db,
+                session_id,
+                "system",
+                "system",
                 serde_json::json!({"text": format!("Failed to start Claude: {e}")}),
-            ).await?;
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -122,7 +134,7 @@ pub async fn run_claude(
 
     let mut response_text = String::new();
     let mut total_tokens: i64 = 0;
-    let mut saw_activity = false; // true if Claude did anything (tool calls, text, etc.)
+    let mut saw_activity = false;
 
     let read_result = tokio::time::timeout(timeout, async {
         while let Ok(Some(line)) = lines.next_line().await {
@@ -131,27 +143,53 @@ pub async fn run_claude(
 
                 match event_type {
                     // Assistant message with content blocks (text or tool_use)
-                    "assistant" => { saw_activity = true;
+                    "assistant" => {
+                        saw_activity = true;
                         if let Some(message) = json.get("message") {
-                            if let Some(content) = message.get("content").and_then(|c| c.as_array()) {
+                            if let Some(content) =
+                                message.get("content").and_then(|c| c.as_array())
+                            {
                                 let mut turn_text = String::new();
                                 for block in content {
-                                    let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                    let block_type = block
+                                        .get("type")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
                                     if block_type == "text" {
-                                        if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                                        if let Some(text) =
+                                            block.get("text").and_then(|v| v.as_str())
+                                        {
                                             turn_text.push_str(text);
                                         }
                                     } else if block_type == "tool_use" {
-                                        let tool = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                        let args = block.get("input").cloned().unwrap_or(serde_json::Value::Null);
-                                        let _ = insert_event(db, session_id, "claude", "tool_call",
-                                            serde_json::json!({"tool": tool, "args": args})).await;
+                                        let tool = block
+                                            .get("name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("unknown");
+                                        let args = block
+                                            .get("input")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null);
+                                        let _ = insert_event(
+                                            db,
+                                            session_id,
+                                            "claude",
+                                            "tool_call",
+                                            serde_json::json!({"tool": tool, "args": args}),
+                                        )
+                                        .await;
                                     }
                                 }
                                 // Stream text immediately so users see it in real-time
                                 if !turn_text.is_empty() {
-                                    let _ = insert_event(db, session_id, "claude", "claude_response",
-                                        serde_json::json!({"text": turn_text})).await;
+                                    let _ = insert_event(
+                                        db,
+                                        session_id,
+                                        "claude",
+                                        "claude_response",
+                                        serde_json::json!({"text": turn_text}),
+                                    )
+                                    .await;
                                     response_text.push_str(&turn_text);
                                 }
                             }
@@ -160,16 +198,36 @@ pub async fn run_claude(
                     // Tool result from Claude's tool execution
                     "user" => {
                         if let Some(message) = json.get("message") {
-                            if let Some(content) = message.get("content").and_then(|c| c.as_array()) {
+                            if let Some(content) =
+                                message.get("content").and_then(|c| c.as_array())
+                            {
                                 for block in content {
-                                    if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                                        let output = block.get("content")
-                                            .map(|v| if v.is_string() { v.as_str().unwrap_or("").to_string() } else { v.to_string() })
+                                    if block.get("type").and_then(|v| v.as_str())
+                                        == Some("tool_result")
+                                    {
+                                        let output = block
+                                            .get("content")
+                                            .map(|v| {
+                                                if v.is_string() {
+                                                    v.as_str().unwrap_or("").to_string()
+                                                } else {
+                                                    v.to_string()
+                                                }
+                                            })
                                             .unwrap_or_default();
-                                        let is_error = block.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                                        let is_error = block
+                                            .get("is_error")
+                                            .and_then(|v| v.as_bool())
+                                            .unwrap_or(false);
                                         let line_count = output.lines().count();
-                                        let _ = insert_event(db, session_id, "claude", "tool_result",
-                                            serde_json::json!({"output": output, "lines": line_count, "is_error": is_error})).await;
+                                        let _ = insert_event(
+                                            db,
+                                            session_id,
+                                            "claude",
+                                            "tool_result",
+                                            serde_json::json!({"output": output, "lines": line_count, "is_error": is_error}),
+                                        )
+                                        .await;
                                     }
                                 }
                             }
@@ -186,10 +244,22 @@ pub async fn run_claude(
                             }
                         }
                         if let Some(usage) = json.get("usage") {
-                            let input = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let output = usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let cache_create = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let cache_read = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let input = usage
+                                .get("input_tokens")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            let output = usage
+                                .get("output_tokens")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            let cache_create = usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            let cache_read = usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
                             total_tokens = input + output + cache_create + cache_read;
                         }
                     }
@@ -198,10 +268,8 @@ pub async fn run_claude(
             }
         }
         child.wait().await
-    }).await;
-
-    // Insert final response only if it came from the result event (not already streamed)
-    // Text from assistant events is already streamed per-turn above
+    })
+    .await;
 
     // Record token usage
     if total_tokens > 0 {
@@ -211,50 +279,66 @@ pub async fn run_claude(
     // Collect stderr
     let stderr_output = stderr_handle.await.unwrap_or_default();
     if !stderr_output.trim().is_empty() {
-        tracing::warn!("claude stderr for session {session_id}: {}", stderr_output.trim());
+        tracing::warn!(
+            "claude stderr for session {session_id}: {}",
+            stderr_output.trim()
+        );
     }
 
     // Update run status
-    // Claude CLI exits 1 for max_turns and other non-fatal conditions,
-    // so treat it as completed if we got any response text
     match read_result {
         Ok(Ok(status)) => {
             if status.success() || !response_text.is_empty() || saw_activity {
-                let _ = finish_run(db, run_id, "completed").await;
-                insert_event(db, session_id, "system", "system",
-                    serde_json::json!({"text": "Claude run completed."})).await?;
+                let _ = db.finish_run(run_id, "completed").await;
+                insert_event(
+                    db,
+                    session_id,
+                    "system",
+                    "system",
+                    serde_json::json!({"text": "Claude run completed."}),
+                )
+                .await?;
             } else {
-                let _ = finish_run(db, run_id, "failed").await;
+                let _ = db.finish_run(run_id, "failed").await;
                 let msg = if stderr_output.trim().is_empty() {
                     format!("Claude exited with {status}")
                 } else {
                     format!("Claude failed: {}", stderr_output.trim())
                 };
-                insert_event(db, session_id, "system", "system",
-                    serde_json::json!({"text": msg})).await?;
+                insert_event(
+                    db,
+                    session_id,
+                    "system",
+                    "system",
+                    serde_json::json!({"text": msg}),
+                )
+                .await?;
             }
         }
         Ok(Err(e)) => {
-            let _ = finish_run(db, run_id, "failed").await;
-            insert_event(db, session_id, "system", "system",
-                serde_json::json!({"text": format!("Claude run failed: {e}")})).await?;
+            let _ = db.finish_run(run_id, "failed").await;
+            insert_event(
+                db,
+                session_id,
+                "system",
+                "system",
+                serde_json::json!({"text": format!("Claude run failed: {e}")}),
+            )
+            .await?;
         }
         Err(_) => {
             let _ = child.kill().await;
-            let _ = finish_run(db, run_id, "timeout").await;
-            insert_event(db, session_id, "system", "system",
-                serde_json::json!({"text": "Claude run timed out."})).await?;
+            let _ = db.finish_run(run_id, "timeout").await;
+            insert_event(
+                db,
+                session_id,
+                "system",
+                "system",
+                serde_json::json!({"text": "Claude run timed out."}),
+            )
+            .await?;
         }
     }
 
-    Ok(())
-}
-
-async fn finish_run(db: &sqlx::PgPool, run_id: i64, status: &str) -> anyhow::Result<()> {
-    sqlx::query("UPDATE session_runs SET status = $1, finished_at = now() WHERE id = $2")
-        .bind(status)
-        .bind(run_id)
-        .execute(db)
-        .await?;
     Ok(())
 }
