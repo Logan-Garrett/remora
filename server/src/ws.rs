@@ -3,9 +3,10 @@ use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use remora_common::{ClientMsg, Event, ServerMsg};
 use crate::commands;
+use crate::db::{Database, DatabaseBackend};
 use crate::state::AppState;
+use remora_common::{ClientMsg, ServerMsg};
 
 pub async fn handle_socket(
     state: Arc<AppState>,
@@ -16,15 +17,15 @@ pub async fn handle_socket(
     let (mut sink, mut stream) = socket.split();
 
     // Verify session exists
-    let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM sessions WHERE id = $1)")
-        .bind(session_id)
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(false);
+    let exists = state.db.session_exists(session_id).await.unwrap_or(false);
 
     if !exists {
-        let msg = ServerMsg::Error { message: "session not found".into() };
-        let _ = sink.send(Message::Text(serde_json::to_string(&msg).unwrap().into())).await;
+        let msg = ServerMsg::Error {
+            message: "session not found".into(),
+        };
+        let _ = sink
+            .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
+            .await;
         return;
     }
 
@@ -35,28 +36,35 @@ pub async fn handle_socket(
     let (mut rx, cancel_token) = state.subscribe(session_id).await;
 
     // Backfill: send all existing events for this session
-    let backfill = sqlx::query_as::<_, (i64, Uuid, chrono::DateTime<chrono::Utc>, Option<String>, String, serde_json::Value)>(
-        "SELECT id, session_id, timestamp, author, kind, payload FROM events WHERE session_id = $1 ORDER BY id",
-    )
-    .bind(session_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let backfill = state
+        .db
+        .get_events_for_session(session_id)
+        .await
+        .unwrap_or_default();
 
     let mut last_backfill_id: i64 = 0;
-    for (id, sid, timestamp, author, kind, payload) in backfill {
-        last_backfill_id = id;
-        let event = Event { id, session_id: sid, timestamp, author, kind, payload };
+    for event in backfill {
+        last_backfill_id = event.id;
         let msg = ServerMsg::Event { data: event };
-        if sink.send(Message::Text(serde_json::to_string(&msg).unwrap().into())).await.is_err() {
+        if sink
+            .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
+            .await
+            .is_err()
+        {
             state.participant_leave(session_id, &name).await;
             return;
         }
     }
 
     // Emit join event after backfill so it appears at the end
-    let _ = insert_event(&state.db, session_id, "system", "system",
-        serde_json::json!({"text": format!("{name} joined")})).await;
+    let _ = insert_event(
+        &state.db,
+        session_id,
+        "system",
+        "system",
+        serde_json::json!({"text": format!("{name} joined")}),
+    )
+    .await;
 
     // Forward live events to the WS client, skipping anything already backfilled
     let ws_name = name.clone();
@@ -121,36 +129,30 @@ pub async fn handle_socket(
     state.unsubscribe_closed(session_id).await;
 
     // Emit leave event
-    let _ = insert_event(&state.db, session_id, "system", "system",
-        serde_json::json!({"text": format!("{name} left")})).await;
+    let _ = insert_event(
+        &state.db,
+        session_id,
+        "system",
+        "system",
+        serde_json::json!({"text": format!("{name} left")}),
+    )
+    .await;
 
     // Update idle_since if no more participants
     let remaining = state.get_participants(session_id).await;
     if remaining.is_empty() {
-        let _ = sqlx::query("UPDATE sessions SET idle_since = now() WHERE id = $1")
-            .bind(session_id)
-            .execute(&state.db)
-            .await;
+        let _ = state.db.set_idle_since_now(session_id).await;
     }
 
     tracing::info!("{name} disconnected from session {session_id}");
 }
 
 pub async fn insert_event(
-    db: &sqlx::PgPool,
+    db: &Arc<DatabaseBackend>,
     session_id: Uuid,
     author: &str,
     kind: &str,
     payload: serde_json::Value,
-) -> Result<i64, sqlx::Error> {
-    let id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO events (session_id, author, kind, payload) VALUES ($1, $2, $3, $4) RETURNING id",
-    )
-    .bind(session_id)
-    .bind(author)
-    .bind(kind)
-    .bind(payload)
-    .fetch_one(db)
-    .await?;
-    Ok(id)
+) -> Result<i64, anyhow::Error> {
+    db.insert_event(session_id, author, kind, payload).await
 }

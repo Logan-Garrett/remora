@@ -1,5 +1,5 @@
+use crate::db::{Database, DatabaseBackend};
 use remora_common::Event;
-use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,6 +18,7 @@ pub struct Config {
     pub global_daily_cap: i64,
     pub claude_cmd: String,
     pub docker_image: String,
+    pub skip_permissions: bool,
 }
 
 impl Config {
@@ -43,6 +44,9 @@ impl Config {
                 .unwrap_or_else(|_| "claude".into()),
             docker_image: std::env::var("REMORA_DOCKER_IMAGE")
                 .unwrap_or_else(|_| "ubuntu:22.04".into()),
+            skip_permissions: std::env::var("REMORA_SKIP_PERMISSIONS")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
         }
     }
 }
@@ -55,7 +59,7 @@ pub struct ConnectionInfo {
 }
 
 pub struct AppState {
-    pub db: PgPool,
+    pub db: Arc<DatabaseBackend>,
     pub team_token: String,
     pub config: Config,
     /// session_id -> list of subscriber connections
@@ -65,7 +69,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(db: PgPool, team_token: String, config: Config) -> Self {
+    pub fn new(db: Arc<DatabaseBackend>, team_token: String, config: Config) -> Self {
         Self {
             db,
             team_token,
@@ -137,13 +141,7 @@ impl AppState {
 
     /// Check if a Claude run is currently in flight for the given session.
     pub async fn is_run_in_flight(&self, session_id: Uuid) -> bool {
-        let result = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM session_runs WHERE session_id = $1 AND status = 'running')",
-        )
-        .bind(session_id)
-        .fetch_one(&self.db)
-        .await;
-        result.unwrap_or(false)
+        self.db.is_run_in_flight(session_id).await.unwrap_or(false)
     }
 
     /// Kick all connections for a named participant in a session.
@@ -152,10 +150,7 @@ impl AppState {
         let subs = self.subscribers.read().await;
         if let Some(list) = subs.get(&session_id) {
             for info in list.iter() {
-                // We don't store names per connection, so we cancel matching via participants map.
-                // For simplicity, we'll mark the cancel token and let the WS handler check it.
-                // The actual kick is done by name match in the participants map.
-                let _ = info; // connections will be cancelled below
+                let _ = info;
             }
         }
         drop(subs);
@@ -164,46 +159,26 @@ impl AppState {
         self.participant_leave(session_id, target).await;
     }
 
-    /// Cancel connections for a participant by name. We need to store name per connection
-    /// for precise kick. For now, broadcast a kick event and let the client self-disconnect.
+    /// Cancel connections for a participant by name.
     #[allow(dead_code)]
     pub async fn kick_connections(&self, session_id: Uuid, target_name: &str) {
-        // We'll handle kick via a system event that the client interprets.
-        // The WS handler will check for kick events targeting the connected user.
         let _ = (session_id, target_name);
     }
 }
 
-/// Runs forever, listening for Postgres NOTIFY on "new_event" and dispatching.
-pub async fn run_pg_listener(state: Arc<AppState>) -> Result<(), sqlx::Error> {
-    let mut listener = sqlx::postgres::PgListener::connect_with(&state.db).await?;
-    listener.listen("new_event").await?;
-    tracing::info!("pg listener started on channel 'new_event'");
+/// Runs the notification listener (Postgres LISTEN/NOTIFY or in-process broadcast)
+/// and dispatches events to WebSocket subscribers.
+pub async fn run_event_listener(state: Arc<AppState>) -> anyhow::Result<()> {
+    let mut rx = state.db.subscribe_notifications().await?;
 
-    loop {
-        let notification = listener.recv().await?;
-        let event_id: i64 = match notification.payload().parse() {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::warn!("bad notify payload: {e}");
-                continue;
-            }
-        };
-
-        let row = sqlx::query_as::<_, (i64, Uuid, chrono::DateTime<chrono::Utc>, Option<String>, String, serde_json::Value)>(
-            "SELECT id, session_id, timestamp, author, kind, payload FROM events WHERE id = $1",
-        )
-        .bind(event_id)
-        .fetch_optional(&state.db)
-        .await;
-
-        match row {
-            Ok(Some((id, session_id, timestamp, author, kind, payload))) => {
-                let event = Event { id, session_id, timestamp, author, kind, payload };
+    while let Some(event_id) = rx.recv().await {
+        match state.db.get_event_by_id(event_id).await {
+            Ok(Some(event)) => {
                 state.dispatch(event).await;
             }
             Ok(None) => tracing::warn!("event {event_id} not found after notify"),
             Err(e) => tracing::error!("fetch event {event_id}: {e}"),
         }
     }
+    Ok(())
 }

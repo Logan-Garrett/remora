@@ -1,4 +1,5 @@
-use sqlx::PgPool;
+use crate::db::{Database, DatabaseBackend};
+use std::sync::Arc;
 use uuid::Uuid;
 
 const MAX_FETCH_BYTES: usize = 100 * 1024; // 100KB
@@ -14,44 +15,22 @@ pub enum DomainStatus {
 /// Check if a domain is allowed for a session.
 /// Order: global blocklist > global allowlist > session allowlist > needs approval.
 pub async fn check_domain_allowed(
-    db: &PgPool,
+    db: &Arc<DatabaseBackend>,
     session_id: Uuid,
     domain: &str,
 ) -> anyhow::Result<DomainStatus> {
     // Check global blocklist
-    let blocked = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM global_allowlist WHERE domain = $1 AND kind = 'block')",
-    )
-    .bind(domain)
-    .fetch_one(db)
-    .await?;
-
-    if blocked {
+    if db.is_domain_blocked(domain).await? {
         return Ok(DomainStatus::Blocked);
     }
 
     // Check global allowlist
-    let global_allowed = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM global_allowlist WHERE domain = $1 AND kind = 'allow')",
-    )
-    .bind(domain)
-    .fetch_one(db)
-    .await?;
-
-    if global_allowed {
+    if db.is_domain_global_allowed(domain).await? {
         return Ok(DomainStatus::Allowed);
     }
 
     // Check session allowlist
-    let session_allowed = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM session_allowlist WHERE session_id = $1 AND domain = $2)",
-    )
-    .bind(session_id)
-    .bind(domain)
-    .fetch_one(db)
-    .await?;
-
-    if session_allowed {
+    if db.is_domain_session_allowed(session_id, domain).await? {
         return Ok(DomainStatus::Allowed);
     }
 
@@ -84,22 +63,14 @@ pub async fn fetch_url(url: &str) -> anyhow::Result<String> {
 
 /// Create a pending approval request for a domain.
 pub async fn create_approval_request(
-    db: &PgPool,
+    db: &Arc<DatabaseBackend>,
     session_id: Uuid,
     domain: &str,
     url: &str,
     author: &str,
 ) -> anyhow::Result<()> {
-    sqlx::query(
-        "INSERT INTO pending_approvals (session_id, domain, url, requested_by) \
-         VALUES ($1, $2, $3, $4)",
-    )
-    .bind(session_id)
-    .bind(domain)
-    .bind(url)
-    .bind(author)
-    .execute(db)
-    .await?;
+    db.create_pending_approval(session_id, domain, url, author)
+        .await?;
 
     // Insert event so participants are notified
     crate::ws::insert_event(
@@ -121,34 +92,12 @@ pub async fn create_approval_request(
 
 /// Resolve a pending approval.
 pub async fn resolve_approval(
-    db: &PgPool,
+    db: &Arc<DatabaseBackend>,
     session_id: Uuid,
     domain: &str,
     approved: bool,
 ) -> anyhow::Result<()> {
-    // Update pending_approvals
-    sqlx::query(
-        "UPDATE pending_approvals SET resolved = true, approved = $1 \
-         WHERE session_id = $2 AND domain = $3 AND resolved = false",
-    )
-    .bind(approved)
-    .bind(session_id)
-    .bind(domain)
-    .execute(db)
-    .await?;
-
-    if approved {
-        // Add to session allowlist
-        sqlx::query(
-            "INSERT INTO session_allowlist (session_id, domain) VALUES ($1, $2) \
-             ON CONFLICT DO NOTHING",
-        )
-        .bind(session_id)
-        .bind(domain)
-        .execute(db)
-        .await?;
-    }
-
+    db.resolve_approval(session_id, domain, approved).await?;
     Ok(())
 }
 
