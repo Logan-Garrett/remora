@@ -174,3 +174,50 @@ fn fetch_extract_domain_basic() {
     );
     assert!(fetch::extract_domain("not a url").is_err());
 }
+
+// ── extract_domain: various URL forms ──────────────────────────────
+
+#[test]
+fn fetch_extract_domain_various_urls() {
+    // Standard https with path
+    assert_eq!(
+        fetch::extract_domain("https://example.com/path").unwrap(),
+        "example.com"
+    );
+
+    // http with subdomain and port
+    assert_eq!(
+        fetch::extract_domain("http://sub.domain.org:8080/").unwrap(),
+        "sub.domain.org"
+    );
+
+    // ftp scheme is parsed by the url crate but we accept any scheme
+    assert_eq!(
+        fetch::extract_domain("ftp://files.example.net/data").unwrap(),
+        "files.example.net"
+    );
+
+    // Empty string should error
+    assert!(
+        fetch::extract_domain("").is_err(),
+        "empty string should fail"
+    );
+
+    // No-scheme string should error (url crate requires scheme)
+    assert!(
+        fetch::extract_domain("example.com/path").is_err(),
+        "no-scheme string should fail"
+    );
+
+    // URL with query and fragment
+    assert_eq!(
+        fetch::extract_domain("https://search.example.com/q?a=1#frag").unwrap(),
+        "search.example.com"
+    );
+
+    // URL with auth info
+    assert_eq!(
+        fetch::extract_domain("https://user:pass@secure.example.com/").unwrap(),
+        "secure.example.com"
+    );
+}

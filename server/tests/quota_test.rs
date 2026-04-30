@@ -119,6 +119,66 @@ async fn quota_global_usage_sums_sessions() {
     );
 }
 
+// ── record_usage increments correctly ───────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quota_record_usage_increments() {
+    let server = TestServer::start().await;
+    let db = server.db();
+
+    let (sid, _, _) = db.create_session("quota-record").await.unwrap();
+
+    let (before, _) = db.get_session_usage(sid).await.unwrap();
+    assert_eq!(before, 0);
+
+    quota::record_usage(db, sid, 250).await.unwrap();
+    let (after1, _) = db.get_session_usage(sid).await.unwrap();
+    assert_eq!(after1, 250, "usage should be 250 after first record");
+
+    quota::record_usage(db, sid, 750).await.unwrap();
+    let (after2, _) = db.get_session_usage(sid).await.unwrap();
+    assert_eq!(after2, 1000, "usage should be 1000 after second record");
+}
+
+// ── global cap blocks all sessions ─────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn quota_global_cap_blocks_all_sessions() {
+    let server = TestServer::start().await;
+    let db = server.db();
+
+    let (sid1, _, _) = db.create_session("quota-gcap-1").await.unwrap();
+    let (sid2, _, _) = db.create_session("quota-gcap-2").await.unwrap();
+
+    // Use a small global cap of 100
+    let global_cap: i64 = 100;
+
+    // Add usage to both sessions summing over global cap
+    db.add_usage(sid1, 60).await.unwrap();
+    db.add_usage(sid2, 60).await.unwrap();
+    // Total = 120 > 100
+
+    // Both sessions should fail the global cap check
+    let r1 = quota::check_quota(db, sid1, global_cap).await;
+    assert!(
+        r1.is_err(),
+        "session 1 should fail when global cap exceeded"
+    );
+    let err1 = r1.unwrap_err().to_string();
+    assert!(
+        err1.contains("Global daily token cap"),
+        "error should mention global cap: {err1}"
+    );
+
+    let r2 = quota::check_quota(db, sid2, global_cap).await;
+    assert!(
+        r2.is_err(),
+        "session 2 should fail when global cap exceeded"
+    );
+}
+
 // ── reset_tokens_if_needed is idempotent for today ──────────────────
 
 #[tokio::test]

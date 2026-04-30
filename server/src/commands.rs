@@ -10,43 +10,48 @@ use uuid::Uuid;
 
 /// Dispatch a client message to the appropriate handler.
 /// Each handler inserts events into the DB (which triggers NOTIFY -> broadcast).
-pub async fn dispatch(state: Arc<AppState>, session_id: Uuid, msg: ClientMsg) {
+///
+/// `verified_author` is the authenticated name from the WebSocket connection
+/// and is used for ALL event insertions, ignoring any client-supplied author field.
+pub async fn dispatch(
+    state: Arc<AppState>,
+    session_id: Uuid,
+    msg: ClientMsg,
+    verified_author: &str,
+) {
+    let author = verified_author;
     let result = match msg {
-        ClientMsg::Chat { author, text } => handle_chat(&state, session_id, &author, &text).await,
-        ClientMsg::Run { author } => {
-            handle_run(state.clone(), session_id, &author, ContextMode::SinceLast).await
+        ClientMsg::Chat { text, .. } => handle_chat(&state, session_id, author, &text).await,
+        ClientMsg::Run { .. } => {
+            handle_run(state.clone(), session_id, author, ContextMode::SinceLast).await
         }
-        ClientMsg::RunAll { author } => {
-            handle_run(state.clone(), session_id, &author, ContextMode::Full).await
+        ClientMsg::RunAll { .. } => {
+            handle_run(state.clone(), session_id, author, ContextMode::Full).await
         }
-        ClientMsg::Clear { author } => handle_clear(&state, session_id, &author).await,
-        ClientMsg::Add { author, path } => handle_add(&state, session_id, &author, &path).await,
-        ClientMsg::Diff { author } => handle_diff(&state, session_id, &author).await,
-        ClientMsg::Fetch { author, url } => handle_fetch(&state, session_id, &author, &url).await,
-        ClientMsg::RepoAdd { author, git_url } => {
-            handle_repo_add(&state, session_id, &author, &git_url).await
+        ClientMsg::Clear { .. } => handle_clear(&state, session_id, author).await,
+        ClientMsg::Add { path, .. } => handle_add(&state, session_id, author, &path).await,
+        ClientMsg::Diff { .. } => handle_diff(&state, session_id, author).await,
+        ClientMsg::Fetch { url, .. } => handle_fetch(&state, session_id, author, &url).await,
+        ClientMsg::RepoAdd { git_url, .. } => {
+            handle_repo_add(&state, session_id, author, &git_url).await
         }
-        ClientMsg::RepoRemove { author, name } => {
-            handle_repo_remove(&state, session_id, &author, &name).await
+        ClientMsg::RepoRemove { name, .. } => {
+            handle_repo_remove(&state, session_id, author, &name).await
         }
-        ClientMsg::RepoList { author } => handle_repo_list(&state, session_id, &author).await,
-        ClientMsg::Allowlist { author } => handle_allowlist(&state, session_id, &author).await,
-        ClientMsg::AllowlistAdd { author, domain } => {
-            handle_allowlist_add(&state, session_id, &author, &domain).await
+        ClientMsg::RepoList { .. } => handle_repo_list(&state, session_id, author).await,
+        ClientMsg::Allowlist { .. } => handle_allowlist(&state, session_id, author).await,
+        ClientMsg::AllowlistAdd { domain, .. } => {
+            handle_allowlist_add(&state, session_id, author, &domain).await
         }
-        ClientMsg::AllowlistRemove { author, domain } => {
-            handle_allowlist_remove(&state, session_id, &author, &domain).await
+        ClientMsg::AllowlistRemove { domain, .. } => {
+            handle_allowlist_remove(&state, session_id, author, &domain).await
         }
         ClientMsg::Approve {
-            author,
-            domain,
-            approved,
-        } => handle_approve(&state, session_id, &author, &domain, approved).await,
-        ClientMsg::Who { author } => handle_who(&state, session_id, &author).await,
-        ClientMsg::Kick { author, target } => {
-            handle_kick(&state, session_id, &author, &target).await
-        }
-        ClientMsg::SessionInfo { author } => handle_session_info(&state, session_id, &author).await,
+            domain, approved, ..
+        } => handle_approve(&state, session_id, author, &domain, approved).await,
+        ClientMsg::Who { .. } => handle_who(&state, session_id, author).await,
+        ClientMsg::Kick { target, .. } => handle_kick(&state, session_id, author, &target).await,
+        ClientMsg::SessionInfo { .. } => handle_session_info(&state, session_id, author).await,
     };
 
     if let Err(e) = result {
@@ -366,6 +371,11 @@ async fn handle_repo_remove(
     author: &str,
     name: &str,
 ) -> anyhow::Result<()> {
+    // Validate that the repo name contains no path separators or traversal sequences
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        anyhow::bail!("Invalid repo name: must not contain path separators or '..'");
+    }
+
     let workspace = state.config.workspace_dir.join(session_id.to_string());
     let repo_dir = workspace.join(name);
 

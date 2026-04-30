@@ -10,7 +10,7 @@ mod common;
 use common::TestServer;
 use remora_server::db::Database;
 
-// ── Concurrent /run: only one starts ───────────────────────────────
+// ── Concurrent /run: atomic insert_run guard ─────────────────────
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
@@ -18,53 +18,43 @@ async fn test_concurrent_run_only_one_starts() {
     let server = TestServer::start().await;
     let session_id = server.create_session("concurrent-run").await;
 
-    let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
-    let _ = TestServer::drain_events(&mut stream, 1500).await;
+    // Test the DB-level guard directly: insert_run should succeed once,
+    // then fail while the first is still 'running'.
+    let run_id = server
+        .db()
+        .insert_run(session_id, "since_last")
+        .await
+        .expect("first insert_run should succeed");
+    assert!(run_id > 0);
 
-    // Send two /run commands as fast as possible
-    TestServer::send_msg(
-        &mut sink,
-        serde_json::json!({"type": "run", "author": "alice"}),
-    )
-    .await;
-    TestServer::send_msg(
-        &mut sink,
-        serde_json::json!({"type": "run", "author": "alice"}),
-    )
-    .await;
-
-    // Collect events for a few seconds
-    let events = TestServer::drain_events(&mut stream, 5000).await;
-
-    // Count "started a Claude run" events and "already in progress" events
-    let mut started_count = 0;
-    let mut already_in_progress_count = 0;
-
-    for ev in &events {
-        if ev["type"] == "event" {
-            if let Some(data) = ev.get("data") {
-                let text = data["payload"]["text"].as_str().unwrap_or("");
-                if text.contains("started a Claude run") {
-                    started_count += 1;
-                }
-                if text.contains("already in progress") {
-                    already_in_progress_count += 1;
-                }
-            }
-        }
-    }
-
-    // Both /run commands produce a "started" event from the command handler,
-    // but only one should actually succeed at insert_run; the other gets
-    // the "already in progress" error event from Claude's run_claude.
+    // Second insert_run while first is still 'running' should fail
+    let result = server.db().insert_run(session_id, "since_last").await;
     assert!(
-        started_count >= 1,
-        "at least one run should have a 'started' event, got {started_count}"
+        result.is_err(),
+        "second insert_run should fail while first is in-flight"
     );
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        already_in_progress_count >= 1,
-        "at least one run should have been rejected as 'already in progress', got {already_in_progress_count}"
+        err_msg.contains("already in progress"),
+        "error should mention 'already in progress', got: {err_msg}"
     );
+
+    // After finishing the first run, a new one should succeed
+    server
+        .db()
+        .finish_run(run_id, "completed")
+        .await
+        .expect("finish_run should succeed");
+
+    let run_id_2 = server
+        .db()
+        .insert_run(session_id, "full")
+        .await
+        .expect("insert_run after finish should succeed");
+    assert!(run_id_2 > run_id);
+
+    // Cleanup
+    server.db().finish_run(run_id_2, "completed").await.unwrap();
 }
 
 // ── /add path traversal blocked ────────────────────────────────────

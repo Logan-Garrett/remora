@@ -472,6 +472,121 @@ async fn db_cascade_delete_session() {
         .unwrap());
 }
 
+// ── Participant tracking via AppState ───────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn db_participant_tracking() {
+    let server = TestServer::start().await;
+    let db = server.db();
+
+    let (sid, _, _) = db.create_session("participant-test").await.unwrap();
+
+    // Build an AppState directly for testing participant methods
+    let config = remora_server::state::Config {
+        workspace_dir: std::path::PathBuf::from("/tmp/remora-test-participant"),
+        run_timeout_secs: 60,
+        idle_timeout_secs: 1800,
+        global_daily_cap: 10_000_000,
+        claude_cmd: "echo".into(),
+        docker_image: "ubuntu:22.04".into(),
+        skip_permissions: true,
+        use_sandbox: false,
+        permission_mode: String::new(),
+        allowed_tools: vec![],
+    };
+
+    let state = remora_server::state::AppState::new(db.clone(), "test-token".to_string(), config);
+
+    // Initially no participants
+    let parts = state.get_participants(sid).await;
+    assert!(parts.is_empty(), "should start with no participants");
+
+    // Join three participants
+    state.participant_join(sid, "alice").await;
+    state.participant_join(sid, "bob").await;
+    state.participant_join(sid, "charlie").await;
+
+    let parts = state.get_participants(sid).await;
+    assert_eq!(parts.len(), 3);
+    assert!(parts.contains(&"alice".to_string()));
+    assert!(parts.contains(&"bob".to_string()));
+    assert!(parts.contains(&"charlie".to_string()));
+
+    // Leave one
+    state.participant_leave(sid, "bob").await;
+
+    let parts = state.get_participants(sid).await;
+    assert_eq!(parts.len(), 2);
+    assert!(!parts.contains(&"bob".to_string()));
+    assert!(parts.contains(&"alice".to_string()));
+    assert!(parts.contains(&"charlie".to_string()));
+
+    // Leave all
+    state.participant_leave(sid, "alice").await;
+    state.participant_leave(sid, "charlie").await;
+
+    let parts = state.get_participants(sid).await;
+    assert!(parts.is_empty(), "all participants should be gone");
+}
+
+// ── Subscribe and dispatch ─────────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn db_subscribe_and_dispatch() {
+    let server = TestServer::start().await;
+    let db = server.db();
+
+    let (sid, _, _) = db.create_session("subscribe-test").await.unwrap();
+
+    // Build an AppState and subscribe
+    let config = remora_server::state::Config {
+        workspace_dir: std::path::PathBuf::from("/tmp/remora-test-subscribe"),
+        run_timeout_secs: 60,
+        idle_timeout_secs: 1800,
+        global_daily_cap: 10_000_000,
+        claude_cmd: "echo".into(),
+        docker_image: "ubuntu:22.04".into(),
+        skip_permissions: true,
+        use_sandbox: false,
+        permission_mode: String::new(),
+        allowed_tools: vec![],
+    };
+
+    let state = std::sync::Arc::new(remora_server::state::AppState::new(
+        db.clone(),
+        "test-token".to_string(),
+        config,
+    ));
+
+    // Start the event notification listener
+    let listener_state = std::sync::Arc::clone(&state);
+    tokio::spawn(async move {
+        let _ = remora_server::state::run_event_listener(listener_state).await;
+    });
+
+    // Give the listener time to subscribe to DB notifications
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let (mut rx, _cancel) = state.subscribe(sid).await;
+
+    // Insert an event into the DB (this triggers the notification channel)
+    let event_id = db
+        .insert_event(sid, "tester", "chat", serde_json::json!({"text": "hello"}))
+        .await
+        .unwrap();
+
+    // The subscriber should receive the dispatched event
+    let received = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await;
+
+    assert!(received.is_ok(), "should receive event within timeout");
+    let event = received.unwrap().expect("channel should not be closed");
+    assert_eq!(event.id, event_id);
+    assert_eq!(event.kind, "chat");
+    assert_eq!(event.payload["text"], "hello");
+}
+
 // ── get_session_info ────────────────────────────────────────────────
 
 #[tokio::test]
