@@ -42,6 +42,11 @@ impl SqliteDb {
 
 #[async_trait]
 impl Database for SqliteDb {
+    async fn ping(&self) -> anyhow::Result<()> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     async fn run_migrations(&self) -> anyhow::Result<()> {
         sqlx::migrate!("../migrations/sqlite")
             .run(&self.pool)

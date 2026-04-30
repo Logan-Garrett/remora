@@ -146,6 +146,12 @@ fn col_datetime(row: &tiberius::Row, idx: usize) -> anyhow::Result<DateTime<Utc>
 
 #[async_trait]
 impl Database for MssqlDb {
+    async fn ping(&self) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        tiberius::Query::new("SELECT 1").execute(&mut conn).await?;
+        Ok(())
+    }
+
     // -- migrations --
 
     async fn run_migrations(&self) -> anyhow::Result<()> {

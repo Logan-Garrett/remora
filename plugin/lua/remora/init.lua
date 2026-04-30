@@ -689,9 +689,9 @@ local _setup_opts = {}
 --- @return table
 function M.get_config()
   return {
-    url = state.url or _setup_opts.url,
-    token = state.token or _setup_opts.token,
-    name = state.name or _setup_opts.name,
+    url = state.url or _setup_opts.url or os.getenv("REMORA_URL"),
+    token = state.token or _setup_opts.token or os.getenv("REMORA_TEAM_TOKEN"),
+    name = state.name or _setup_opts.name or os.getenv("REMORA_NAME") or vim.fn.hostname(),
     bridge = state.bridge_path or _setup_opts.bridge,
   }
 end

@@ -24,6 +24,11 @@ impl PostgresDb {
 
 #[async_trait]
 impl Database for PostgresDb {
+    async fn ping(&self) -> anyhow::Result<()> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     async fn run_migrations(&self) -> anyhow::Result<()> {
         sqlx::migrate!("../migrations/postgres")
             .run(&self.pool)
