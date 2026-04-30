@@ -73,13 +73,12 @@ fn parse_connection_string(url: &str) -> anyhow::Result<Config> {
         config.authentication(AuthMethod::sql_server(user, pass));
     }
 
-    // Encryption: if TrustServerCertificate is set, we need encryption ON but trust the cert.
-    // If encrypt is explicitly set, use that. Otherwise default based on trust_cert.
+    // Encryption defaults to NotSupported (plaintext). Users can override with encrypt=true.
+    // TrustServerCertificate=true calls trust_cert() but doesn't force encryption level —
+    // that's controlled separately via encrypt=.
+    config.encryption(encrypt.unwrap_or(tiberius::EncryptionLevel::NotSupported));
     if trust_cert {
         config.trust_cert();
-        config.encryption(encrypt.unwrap_or(tiberius::EncryptionLevel::Required));
-    } else {
-        config.encryption(encrypt.unwrap_or(tiberius::EncryptionLevel::NotSupported));
     }
 
     Ok(config)

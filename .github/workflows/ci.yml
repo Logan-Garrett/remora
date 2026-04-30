@@ -92,7 +92,7 @@ jobs:
           --health-retries 10
           --health-start-period 30s
     env:
-      DATABASE_URL: "server=localhost;database=remora_test;user=sa;password=Remora_Test_123!;TrustServerCertificate=true"
+      DATABASE_URL: "server=localhost;database=remora_test;user=sa;password=Remora_Test_123!;TrustServerCertificate=true;encrypt=false"
       REMORA_DB_PROVIDER: mssql
       REMORA_TEAM_TOKEN: test-token
     steps:
