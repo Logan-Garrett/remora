@@ -246,15 +246,17 @@ impl Database for PostgresDb {
     // -- runs --
 
     async fn insert_run(&self, session_id: Uuid, context_mode: &str) -> anyhow::Result<i64> {
-        let id = sqlx::query_scalar::<_, i64>(
+        let row = sqlx::query_scalar::<_, i64>(
             "INSERT INTO session_runs (session_id, status, context_mode) \
-             VALUES ($1, 'running', $2) RETURNING id",
+             SELECT $1, 'running', $2 \
+             WHERE NOT EXISTS (SELECT 1 FROM session_runs WHERE session_id = $1 AND status = 'running') \
+             RETURNING id",
         )
         .bind(session_id)
         .bind(context_mode)
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(id)
+        row.ok_or_else(|| anyhow::anyhow!("A run is already in progress for this session"))
     }
 
     async fn finish_run(&self, run_id: i64, status: &str) -> anyhow::Result<()> {
