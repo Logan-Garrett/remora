@@ -20,6 +20,8 @@ pub struct Config {
     pub docker_image: String,
     pub skip_permissions: bool,
     pub use_sandbox: bool,
+    pub permission_mode: String,
+    pub allowed_tools: Vec<String>,
 }
 
 impl Config {
@@ -50,6 +52,16 @@ impl Config {
             use_sandbox: std::env::var("REMORA_USE_SANDBOX")
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(false),
+            permission_mode: std::env::var("REMORA_PERMISSION_MODE")
+                .unwrap_or_else(|_| String::new()),
+            allowed_tools: std::env::var("REMORA_ALLOWED_TOOLS")
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 }
