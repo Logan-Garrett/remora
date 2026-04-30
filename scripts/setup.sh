@@ -80,8 +80,8 @@ setup_server() {
   header "Database configuration"
 
   echo "Which database provider?"
-  echo "  1) sqlite  (easiest, single-instance, no setup needed)"
-  echo "  2) postgres (recommended for production / multi-instance)"
+  echo "  1) postgres (recommended, supports multi-instance)"
+  echo "  2) sqlite   (easiest, single-instance, no setup needed)"
   echo ""
   read -rp "Choice [1]: " db_choice
   db_choice="${db_choice:-1}"
@@ -89,7 +89,7 @@ setup_server() {
   local db_provider db_url
 
   case "$db_choice" in
-    2|postgres|pg)
+    1|postgres|pg)
       db_provider="postgres"
 
       if ! check_command psql "psql is needed for Postgres setup" 2>/dev/null; then
@@ -125,7 +125,7 @@ setup_server() {
         fi
       fi
       ;;
-    *)
+    2|sqlite)
       db_provider="sqlite"
       read -rp "SQLite database path [remora.db]: " sqlite_path
       sqlite_path="${sqlite_path:-remora.db}"
@@ -198,6 +198,69 @@ EOF
   info "Running: cargo build --release -p remora-server"
   cargo build --release -p remora-server
   ok "Server binary built: ${REPO_ROOT}/target/release/remora-server"
+
+  header "Smoke test"
+
+  read -rp "Run a quick smoke test to verify everything works? [Y/n]: " do_test
+  do_test="${do_test:-Y}"
+  if [[ "$do_test" =~ ^[Yy] ]]; then
+    info "Starting server in background..."
+    (
+      cd "$REPO_ROOT"
+      # shellcheck disable=SC1091
+      set -a && source .env && set +a
+      ./target/release/remora-server &
+    )
+    local server_pid=$!
+    sleep 2
+
+    if kill -0 "$server_pid" 2>/dev/null; then
+      ok "Server started (PID ${server_pid})"
+
+      local test_url="http://127.0.0.1:${bind_addr##*:}"
+      info "Testing API at ${test_url}..."
+
+      local status
+      status=$(curl -s -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${team_token}" \
+        "${test_url}/sessions" 2>/dev/null || echo "000")
+
+      if [ "$status" = "200" ]; then
+        ok "GET /sessions returned 200"
+
+        # Create a test session
+        local create_resp
+        create_resp=$(curl -s -X POST "${test_url}/sessions" \
+          -H "Authorization: Bearer ${team_token}" \
+          -H "Content-Type: application/json" \
+          -d '{"description":"setup smoke test"}' 2>/dev/null)
+
+        if echo "$create_resp" | grep -q '"id"'; then
+          ok "POST /sessions created a session"
+          local sid
+          sid=$(echo "$create_resp" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+
+          # Delete it
+          curl -s -X DELETE "${test_url}/sessions/${sid}" \
+            -H "Authorization: Bearer ${team_token}" > /dev/null 2>&1
+          ok "DELETE /sessions cleaned up test session"
+        else
+          warn "POST /sessions returned unexpected response: ${create_resp}"
+        fi
+
+        echo ""
+        ok "Smoke test passed!"
+      else
+        warn "GET /sessions returned ${status} — server may need a moment to initialize"
+      fi
+
+      info "Stopping test server..."
+      kill "$server_pid" 2>/dev/null
+      wait "$server_pid" 2>/dev/null || true
+    else
+      warn "Server failed to start. Check logs above for errors."
+    fi
+  fi
 
   header "Server setup complete"
 
