@@ -21,71 +21,65 @@ pub struct MssqlDb {
 /// into a `tiberius::Config`.
 fn parse_connection_string(url: &str) -> anyhow::Result<Config> {
     let mut config = Config::new();
-    // Default port
     config.port(1433);
-    // Default to no encryption for local dev; users can override with `encrypt=true`
-    config.encryption(tiberius::EncryptionLevel::NotSupported);
 
-    for part in url.split(';') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-        let (key, value) = part
-            .split_once('=')
-            .ok_or_else(|| anyhow::anyhow!("invalid connection string segment: {part}"))?;
-        match key.trim().to_lowercase().as_str() {
-            "server" | "host" => config.host(value.trim()),
-            "database" | "db" => config.database(value.trim()),
-            "user" | "uid" => {
-                config.authentication(AuthMethod::sql_server(value.trim(), ""));
-            }
-            "password" | "pwd" => {
-                // Re-set auth with the password. We need the username too, so
-                // this is a best-effort approach — the standard order is
-                // user before password.
-                // tiberius Config doesn't let us read back the user, so we
-                // stash nothing extra here and rely on the full auth being set
-                // after all parts are parsed.
-            }
-            "port" => {
-                let port: u16 = value.trim().parse()?;
-                config.port(port);
-            }
-            "encrypt" => {
-                let enc = match value.trim().to_lowercase().as_str() {
-                    "true" | "yes" | "required" => tiberius::EncryptionLevel::Required,
-                    _ => tiberius::EncryptionLevel::NotSupported,
-                };
-                config.encryption(enc);
-            }
-            "trustservercertificate" | "trust_cert" => {
-                if value.trim().to_lowercase() == "true" {
-                    config.trust_cert();
-                }
-            }
-            _ => {} // ignore unknown keys
-        }
-    }
-
-    // Re-parse to set auth properly with both user and password
+    // First pass: collect all key-value pairs
+    let mut host = String::new();
+    let mut database = String::new();
     let mut user = String::new();
     let mut pass = String::new();
+    let mut port: u16 = 1433;
+    let mut encrypt = None;
+    let mut trust_cert = false;
+
     for part in url.split(';') {
         let part = part.trim();
         if part.is_empty() {
             continue;
         }
-        if let Some((key, value)) = part.split_once('=') {
-            match key.trim().to_lowercase().as_str() {
-                "user" | "uid" => user = value.trim().to_string(),
-                "password" | "pwd" => pass = value.trim().to_string(),
-                _ => {}
+        let (key, value) = match part.split_once('=') {
+            Some(kv) => kv,
+            None => continue,
+        };
+        match key.trim().to_lowercase().as_str() {
+            "server" | "host" => host = value.trim().to_string(),
+            "database" | "db" => database = value.trim().to_string(),
+            "user" | "uid" => user = value.trim().to_string(),
+            "password" | "pwd" => pass = value.trim().to_string(),
+            "port" => port = value.trim().parse().unwrap_or(1433),
+            "encrypt" => {
+                encrypt = Some(match value.trim().to_lowercase().as_str() {
+                    "true" | "yes" | "required" => tiberius::EncryptionLevel::Required,
+                    "false" | "no" => tiberius::EncryptionLevel::NotSupported,
+                    _ => tiberius::EncryptionLevel::Off,
+                });
             }
+            "trustservercertificate" | "trust_cert" => {
+                trust_cert = value.trim().to_lowercase() == "true";
+            }
+            _ => {}
         }
     }
+
+    // Apply parsed values
+    if !host.is_empty() {
+        config.host(&host);
+    }
+    if !database.is_empty() {
+        config.database(&database);
+    }
+    config.port(port);
     if !user.is_empty() {
         config.authentication(AuthMethod::sql_server(user, pass));
+    }
+
+    // Encryption: if TrustServerCertificate is set, we need encryption ON but trust the cert.
+    // If encrypt is explicitly set, use that. Otherwise default based on trust_cert.
+    if trust_cert {
+        config.trust_cert();
+        config.encryption(encrypt.unwrap_or(tiberius::EncryptionLevel::Required));
+    } else {
+        config.encryption(encrypt.unwrap_or(tiberius::EncryptionLevel::NotSupported));
     }
 
     Ok(config)
