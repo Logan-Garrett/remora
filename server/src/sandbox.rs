@@ -107,7 +107,7 @@ pub async fn create_sandbox(
 pub async fn exec_in_sandbox(
     session_id: Uuid,
     cmd: &[&str],
-    timeout: Duration,
+    _timeout: Duration,
 ) -> anyhow::Result<tokio::process::Child> {
     let name = container_name(session_id);
     let mut args = vec!["exec".to_string(), "-i".to_string(), name.clone()];
