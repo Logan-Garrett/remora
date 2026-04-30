@@ -59,6 +59,7 @@ impl TestServer {
             claude_cmd: "echo".into(), // dummy -- tests never actually invoke Claude
             docker_image: "ubuntu:22.04".into(),
             skip_permissions: true,
+            use_sandbox: false,
         };
 
         let state = AppState::new(db_arc.clone(), TEST_TOKEN.to_string(), config);

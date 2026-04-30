@@ -99,18 +99,19 @@ pub async fn run_claude(
 
     let mut child = if state.config.use_sandbox {
         // Ensure sandbox container exists
-        if let Err(e) = crate::sandbox::ensure_sandbox(
-            session_id,
-            &workspace_path,
-            &state.config.docker_image,
-        )
-        .await
+        if let Err(e) =
+            crate::sandbox::ensure_sandbox(session_id, &workspace_path, &state.config.docker_image)
+                .await
         {
             let _ = db.finish_run(run_id, "failed").await;
             insert_event(
-                db, session_id, "system", "system",
+                db,
+                session_id,
+                "system",
+                "system",
                 serde_json::json!({"text": format!("Failed to create sandbox: {e}")}),
-            ).await?;
+            )
+            .await?;
             return Ok(());
         }
 
@@ -128,9 +129,13 @@ pub async fn run_claude(
             Err(e) => {
                 let _ = db.finish_run(run_id, "failed").await;
                 insert_event(
-                    db, session_id, "system", "system",
+                    db,
+                    session_id,
+                    "system",
+                    "system",
                     serde_json::json!({"text": format!("Failed to exec in sandbox: {e}")}),
-                ).await?;
+                )
+                .await?;
                 return Ok(());
             }
         }
@@ -147,9 +152,13 @@ pub async fn run_claude(
             Err(e) => {
                 let _ = db.finish_run(run_id, "failed").await;
                 insert_event(
-                    db, session_id, "system", "system",
+                    db,
+                    session_id,
+                    "system",
+                    "system",
                     serde_json::json!({"text": format!("Failed to start Claude: {e}")}),
-                ).await?;
+                )
+                .await?;
                 return Ok(());
             }
         }

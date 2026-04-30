@@ -46,10 +46,7 @@ pub async fn create_sandbox(
 
     // If we found Claude CLI, bind-mount it into the container
     if let Some(ref claude_dir) = claude_path {
-        create_args.extend([
-            "-v".to_string(),
-            format!("{claude_dir}:{claude_dir}:ro"),
-        ]);
+        create_args.extend(["-v".to_string(), format!("{claude_dir}:{claude_dir}:ro")]);
         // Also mount the Claude config directory for auth
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
         let claude_config = format!("{home}/.claude");
@@ -84,10 +81,7 @@ pub async fn create_sandbox(
         "infinity".to_string(),
     ]);
 
-    let output = Command::new("docker")
-        .args(&create_args)
-        .output()
-        .await?;
+    let output = Command::new("docker").args(&create_args).output().await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -209,11 +203,7 @@ pub async fn sandbox_status(session_id: Uuid) -> String {
 
 /// Find the directory containing the Claude CLI binary on the host.
 async fn find_claude_path() -> Option<String> {
-    let output = Command::new("which")
-        .arg("claude")
-        .output()
-        .await
-        .ok()?;
+    let output = Command::new("which").arg("claude").output().await.ok()?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         // Return the directory containing the binary
@@ -227,11 +217,7 @@ async fn find_claude_path() -> Option<String> {
 
 /// Find the Node.js binary directory on the host.
 async fn find_node_path() -> Option<String> {
-    let output = Command::new("which")
-        .arg("node")
-        .output()
-        .await
-        .ok()?;
+    let output = Command::new("which").arg("node").output().await.ok()?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         std::path::Path::new(&path)
