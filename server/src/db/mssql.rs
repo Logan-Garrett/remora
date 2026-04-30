@@ -59,6 +59,11 @@ fn parse_connection_string(url: &str) -> anyhow::Result<Config> {
                 };
                 config.encryption(enc);
             }
+            "trustservercertificate" | "trust_cert" => {
+                if value.trim().to_lowercase() == "true" {
+                    config.trust_cert();
+                }
+            }
             _ => {} // ignore unknown keys
         }
     }
