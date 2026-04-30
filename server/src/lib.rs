@@ -34,7 +34,10 @@ use state::AppState;
 pub fn check_token(state: &AppState, raw: &str) -> bool {
     use subtle::ConstantTimeEq;
     let provided = raw.strip_prefix("Bearer ").unwrap_or(raw);
-    provided.as_bytes().ct_eq(state.team_token.as_bytes()).into()
+    provided
+        .as_bytes()
+        .ct_eq(state.team_token.as_bytes())
+        .into()
 }
 
 fn extract_token(headers: &axum::http::HeaderMap) -> Option<&str> {
@@ -71,7 +74,10 @@ async fn create_session(
             let session_dir = state.config.workspace_dir.join(id.to_string());
             if let Err(e) = tokio::fs::create_dir_all(&session_dir).await {
                 tracing::error!("failed to create workspace for session {id}: {e}");
-                return (StatusCode::INTERNAL_SERVER_ERROR, "failed to create workspace")
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to create workspace",
+                )
                     .into_response();
             }
 

@@ -48,10 +48,7 @@ pub async fn assemble_context(
 fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String {
     match kind {
         "chat" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             format!("[{author}]: {text}")
         }
         "file" => {
@@ -81,17 +78,11 @@ fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String
             )
         }
         "diff" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             text.to_string()
         }
         "claude_response" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             format!("[Claude]: {text}")
         }
         "tool_call" => {
@@ -106,17 +97,11 @@ fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String
             format!("[Claude tool_call]: {tool}({args})")
         }
         "tool_result" => {
-            let output = payload
-                .get("output")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let output = payload.get("output").and_then(|v| v.as_str()).unwrap_or("");
             format!("[tool_result]: {output}")
         }
         "system" => {
-            let text = payload
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
             format!("[system]: {text}")
         }
         _ => String::new(),

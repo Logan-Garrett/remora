@@ -46,15 +46,9 @@ pub trait Database: Send + Sync + 'static {
         payload: Value,
     ) -> anyhow::Result<i64>;
 
-    async fn get_event_by_id(
-        &self,
-        event_id: i64,
-    ) -> anyhow::Result<Option<Event>>;
+    async fn get_event_by_id(&self, event_id: i64) -> anyhow::Result<Option<Event>>;
 
-    async fn get_events_for_session(
-        &self,
-        session_id: Uuid,
-    ) -> anyhow::Result<Vec<Event>>;
+    async fn get_events_for_session(&self, session_id: Uuid) -> anyhow::Result<Vec<Event>>;
 
     async fn get_events_since(
         &self,
@@ -65,12 +59,7 @@ pub trait Database: Send + Sync + 'static {
     async fn get_last_context_boundary(&self, session_id: Uuid) -> anyhow::Result<i64>;
 
     // -- repos --
-    async fn upsert_repo(
-        &self,
-        session_id: Uuid,
-        name: &str,
-        git_url: &str,
-    ) -> anyhow::Result<()>;
+    async fn upsert_repo(&self, session_id: Uuid, name: &str, git_url: &str) -> anyhow::Result<()>;
 
     async fn delete_repo(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
 
@@ -79,11 +68,7 @@ pub trait Database: Send + Sync + 'static {
     async fn list_repo_names(&self, session_id: Uuid) -> anyhow::Result<Vec<String>>;
 
     // -- runs --
-    async fn insert_run(
-        &self,
-        session_id: Uuid,
-        context_mode: &str,
-    ) -> anyhow::Result<i64>;
+    async fn insert_run(&self, session_id: Uuid, context_mode: &str) -> anyhow::Result<i64>;
 
     async fn finish_run(&self, run_id: i64, status: &str) -> anyhow::Result<()>;
 
@@ -92,22 +77,11 @@ pub trait Database: Send + Sync + 'static {
     // -- allowlists --
     async fn list_global_allowlist(&self) -> anyhow::Result<Vec<(String, String)>>;
 
-    async fn list_session_allowlist(
-        &self,
-        session_id: Uuid,
-    ) -> anyhow::Result<Vec<String>>;
+    async fn list_session_allowlist(&self, session_id: Uuid) -> anyhow::Result<Vec<String>>;
 
-    async fn add_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()>;
+    async fn add_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()>;
 
-    async fn remove_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()>;
+    async fn remove_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()>;
 
     async fn is_domain_blocked(&self, domain: &str) -> anyhow::Result<bool>;
 
@@ -266,10 +240,7 @@ impl Database for DatabaseBackend {
         }
     }
 
-    async fn get_events_for_session(
-        &self,
-        session_id: Uuid,
-    ) -> anyhow::Result<Vec<Event>> {
+    async fn get_events_for_session(&self, session_id: Uuid) -> anyhow::Result<Vec<Event>> {
         match self {
             Self::Postgres(db) => db.get_events_for_session(session_id).await,
             Self::Sqlite(db) => db.get_events_for_session(session_id).await,
@@ -294,12 +265,7 @@ impl Database for DatabaseBackend {
         }
     }
 
-    async fn upsert_repo(
-        &self,
-        session_id: Uuid,
-        name: &str,
-        git_url: &str,
-    ) -> anyhow::Result<()> {
+    async fn upsert_repo(&self, session_id: Uuid, name: &str, git_url: &str) -> anyhow::Result<()> {
         match self {
             Self::Postgres(db) => db.upsert_repo(session_id, name, git_url).await,
             Self::Sqlite(db) => db.upsert_repo(session_id, name, git_url).await,
@@ -327,11 +293,7 @@ impl Database for DatabaseBackend {
         }
     }
 
-    async fn insert_run(
-        &self,
-        session_id: Uuid,
-        context_mode: &str,
-    ) -> anyhow::Result<i64> {
+    async fn insert_run(&self, session_id: Uuid, context_mode: &str) -> anyhow::Result<i64> {
         match self {
             Self::Postgres(db) => db.insert_run(session_id, context_mode).await,
             Self::Sqlite(db) => db.insert_run(session_id, context_mode).await,
@@ -359,32 +321,21 @@ impl Database for DatabaseBackend {
         }
     }
 
-    async fn list_session_allowlist(
-        &self,
-        session_id: Uuid,
-    ) -> anyhow::Result<Vec<String>> {
+    async fn list_session_allowlist(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
         match self {
             Self::Postgres(db) => db.list_session_allowlist(session_id).await,
             Self::Sqlite(db) => db.list_session_allowlist(session_id).await,
         }
     }
 
-    async fn add_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn add_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         match self {
             Self::Postgres(db) => db.add_session_allowlist(session_id, domain).await,
             Self::Sqlite(db) => db.add_session_allowlist(session_id, domain).await,
         }
     }
 
-    async fn remove_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn remove_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         match self {
             Self::Postgres(db) => db.remove_session_allowlist(session_id, domain).await,
             Self::Sqlite(db) => db.remove_session_allowlist(session_id, domain).await,

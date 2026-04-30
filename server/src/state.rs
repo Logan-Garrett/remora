@@ -40,8 +40,7 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(10_000_000),
-            claude_cmd: std::env::var("REMORA_CLAUDE_CMD")
-                .unwrap_or_else(|_| "claude".into()),
+            claude_cmd: std::env::var("REMORA_CLAUDE_CMD").unwrap_or_else(|_| "claude".into()),
             docker_image: std::env::var("REMORA_DOCKER_IMAGE")
                 .unwrap_or_else(|_| "ubuntu:22.04".into()),
             skip_permissions: std::env::var("REMORA_SKIP_PERMISSIONS")

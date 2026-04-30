@@ -26,9 +26,7 @@ impl SqliteDb {
         sqlx::query("PRAGMA journal_mode=WAL")
             .execute(&pool)
             .await?;
-        sqlx::query("PRAGMA foreign_keys=ON")
-            .execute(&pool)
-            .await?;
+        sqlx::query("PRAGMA foreign_keys=ON").execute(&pool).await?;
 
         let (notify_tx, _) = broadcast::channel(1024);
         Ok(Self { pool, notify_tx })
@@ -89,10 +87,7 @@ impl Database for SqliteDb {
                 let uuid = id.parse::<Uuid>()?;
                 let dt = DateTime::parse_from_rfc3339(&ts)
                     .map(|d| d.with_timezone(&Utc))
-                    .or_else(|_| {
-                        ts.parse::<NaiveDateTime>()
-                            .map(|nd| nd.and_utc())
-                    })?;
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
                 Ok((uuid, desc, dt))
             })
             .collect()
@@ -109,12 +104,10 @@ impl Database for SqliteDb {
 
     async fn session_exists(&self, session_id: Uuid) -> anyhow::Result<bool> {
         let id_str = session_id.to_string();
-        let row: (i32,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM sessions WHERE id = ?",
-        )
-        .bind(&id_str)
-        .fetch_one(&self.pool)
-        .await?;
+        let row: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE id = ?")
+            .bind(&id_str)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(row.0 > 0)
     }
 
@@ -289,12 +282,7 @@ impl Database for SqliteDb {
 
     // -- repos --
 
-    async fn upsert_repo(
-        &self,
-        session_id: Uuid,
-        name: &str,
-        git_url: &str,
-    ) -> anyhow::Result<()> {
+    async fn upsert_repo(&self, session_id: Uuid, name: &str, git_url: &str) -> anyhow::Result<()> {
         let sid_str = session_id.to_string();
         sqlx::query(
             "INSERT INTO session_repos (session_id, name, git_url) VALUES (?, ?, ?) \
@@ -331,22 +319,17 @@ impl Database for SqliteDb {
 
     async fn list_repo_names(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
         let sid_str = session_id.to_string();
-        let rows = sqlx::query_as::<_, (String,)>(
-            "SELECT name FROM session_repos WHERE session_id = ?",
-        )
-        .bind(&sid_str)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows =
+            sqlx::query_as::<_, (String,)>("SELECT name FROM session_repos WHERE session_id = ?")
+                .bind(&sid_str)
+                .fetch_all(&self.pool)
+                .await?;
         Ok(rows.into_iter().map(|(n,)| n).collect())
     }
 
     // -- runs --
 
-    async fn insert_run(
-        &self,
-        session_id: Uuid,
-        context_mode: &str,
-    ) -> anyhow::Result<i64> {
+    async fn insert_run(&self, session_id: Uuid, context_mode: &str) -> anyhow::Result<i64> {
         let sid_str = session_id.to_string();
         let now_str = Utc::now().to_rfc3339();
         let id: (i64,) = sqlx::query_as(
@@ -406,11 +389,7 @@ impl Database for SqliteDb {
         Ok(rows.into_iter().map(|(d,)| d).collect())
     }
 
-    async fn add_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn add_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         let sid_str = session_id.to_string();
         let now_str = Utc::now().to_rfc3339();
         sqlx::query(
@@ -425,11 +404,7 @@ impl Database for SqliteDb {
         Ok(())
     }
 
-    async fn remove_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn remove_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         let sid_str = session_id.to_string();
         sqlx::query("DELETE FROM session_allowlist WHERE session_id = ? AND domain = ?")
             .bind(&sid_str)
@@ -592,13 +567,11 @@ impl Database for SqliteDb {
 
     async fn add_usage(&self, session_id: Uuid, tokens: i64) -> anyhow::Result<()> {
         let sid_str = session_id.to_string();
-        sqlx::query(
-            "UPDATE sessions SET tokens_used_today = tokens_used_today + ? WHERE id = ?",
-        )
-        .bind(tokens)
-        .bind(&sid_str)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE sessions SET tokens_used_today = tokens_used_today + ? WHERE id = ?")
+            .bind(tokens)
+            .bind(&sid_str)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

@@ -64,12 +64,11 @@ impl Database for PostgresDb {
     }
 
     async fn session_exists(&self, session_id: Uuid) -> anyhow::Result<bool> {
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = $1)",
-        )
-        .bind(session_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM sessions WHERE id = $1)")
+                .bind(session_id)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(exists)
     }
 
@@ -133,14 +132,16 @@ impl Database for PostgresDb {
         .bind(event_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(id, session_id, timestamp, author, kind, payload)| Event {
-            id,
-            session_id,
-            timestamp,
-            author,
-            kind,
-            payload,
-        }))
+        Ok(
+            row.map(|(id, session_id, timestamp, author, kind, payload)| Event {
+                id,
+                session_id,
+                timestamp,
+                author,
+                kind,
+                payload,
+            }),
+        )
     }
 
     async fn get_events_for_session(&self, session_id: Uuid) -> anyhow::Result<Vec<Event>> {
@@ -196,12 +197,7 @@ impl Database for PostgresDb {
 
     // -- repos --
 
-    async fn upsert_repo(
-        &self,
-        session_id: Uuid,
-        name: &str,
-        git_url: &str,
-    ) -> anyhow::Result<()> {
+    async fn upsert_repo(&self, session_id: Uuid, name: &str, git_url: &str) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO session_repos (session_id, name, git_url) VALUES ($1, $2, $3) \
              ON CONFLICT (session_id, name) DO UPDATE SET git_url = $3",
@@ -234,22 +230,17 @@ impl Database for PostgresDb {
     }
 
     async fn list_repo_names(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
-        let rows = sqlx::query_as::<_, (String,)>(
-            "SELECT name FROM session_repos WHERE session_id = $1",
-        )
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows =
+            sqlx::query_as::<_, (String,)>("SELECT name FROM session_repos WHERE session_id = $1")
+                .bind(session_id)
+                .fetch_all(&self.pool)
+                .await?;
         Ok(rows.into_iter().map(|(n,)| n).collect())
     }
 
     // -- runs --
 
-    async fn insert_run(
-        &self,
-        session_id: Uuid,
-        context_mode: &str,
-    ) -> anyhow::Result<i64> {
+    async fn insert_run(&self, session_id: Uuid, context_mode: &str) -> anyhow::Result<i64> {
         let id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO session_runs (session_id, status, context_mode) \
              VALUES ($1, 'running', $2) RETURNING id",
@@ -301,11 +292,7 @@ impl Database for PostgresDb {
         Ok(rows.into_iter().map(|(d,)| d).collect())
     }
 
-    async fn add_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn add_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         sqlx::query(
             "INSERT INTO session_allowlist (session_id, domain) VALUES ($1, $2) \
              ON CONFLICT DO NOTHING",
@@ -317,11 +304,7 @@ impl Database for PostgresDb {
         Ok(())
     }
 
-    async fn remove_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn remove_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM session_allowlist WHERE session_id = $1 AND domain = $2")
             .bind(session_id)
             .bind(domain)
@@ -467,13 +450,11 @@ impl Database for PostgresDb {
     }
 
     async fn add_usage(&self, session_id: Uuid, tokens: i64) -> anyhow::Result<()> {
-        sqlx::query(
-            "UPDATE sessions SET tokens_used_today = tokens_used_today + $1 WHERE id = $2",
-        )
-        .bind(tokens)
-        .bind(session_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE sessions SET tokens_used_today = tokens_used_today + $1 WHERE id = $2")
+            .bind(tokens)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

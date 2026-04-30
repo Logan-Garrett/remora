@@ -22,9 +22,7 @@ pub async fn dispatch(state: Arc<AppState>, session_id: Uuid, msg: ClientMsg) {
         ClientMsg::Clear { author } => handle_clear(&state, session_id, &author).await,
         ClientMsg::Add { author, path } => handle_add(&state, session_id, &author, &path).await,
         ClientMsg::Diff { author } => handle_diff(&state, session_id, &author).await,
-        ClientMsg::Fetch { author, url } => {
-            handle_fetch(&state, session_id, &author, &url).await
-        }
+        ClientMsg::Fetch { author, url } => handle_fetch(&state, session_id, &author, &url).await,
         ClientMsg::RepoAdd { author, git_url } => {
             handle_repo_add(&state, session_id, &author, &git_url).await
         }
@@ -48,9 +46,7 @@ pub async fn dispatch(state: Arc<AppState>, session_id: Uuid, msg: ClientMsg) {
         ClientMsg::Kick { author, target } => {
             handle_kick(&state, session_id, &author, &target).await
         }
-        ClientMsg::SessionInfo { author } => {
-            handle_session_info(&state, session_id, &author).await
-        }
+        ClientMsg::SessionInfo { author } => handle_session_info(&state, session_id, &author).await,
     };
 
     if let Err(e) = result {
@@ -113,11 +109,7 @@ async fn handle_run(
     Ok(())
 }
 
-async fn handle_clear(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
+async fn handle_clear(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
     insert_event(
         &state.db,
         session_id,
@@ -154,7 +146,9 @@ async fn handle_add(
         }
     };
 
-    let canonical_workspace = tokio::fs::canonicalize(&workspace).await.unwrap_or(workspace);
+    let canonical_workspace = tokio::fs::canonicalize(&workspace)
+        .await
+        .unwrap_or(workspace);
     if !canonical.starts_with(&canonical_workspace) {
         insert_event(
             &state.db,
@@ -193,11 +187,7 @@ async fn handle_add(
     Ok(())
 }
 
-async fn handle_diff(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
+async fn handle_diff(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
     let workspace = state.config.workspace_dir.join(session_id.to_string());
 
     // Get repos for the session
@@ -398,11 +388,7 @@ async fn handle_repo_remove(
     Ok(())
 }
 
-async fn handle_repo_list(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
+async fn handle_repo_list(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
     let repos = state.db.list_repos(session_id).await?;
 
     let text = if repos.is_empty() {
@@ -426,11 +412,7 @@ async fn handle_repo_list(
     Ok(())
 }
 
-async fn handle_allowlist(
-    state: &AppState,
-    session_id: Uuid,
-    author: &str,
-) -> anyhow::Result<()> {
+async fn handle_allowlist(state: &AppState, session_id: Uuid, author: &str) -> anyhow::Result<()> {
     let global = state.db.list_global_allowlist().await?;
     let session_entries = state.db.list_session_allowlist(session_id).await?;
 
@@ -555,11 +537,7 @@ async fn handle_approve(
     Ok(())
 }
 
-async fn handle_who(
-    state: &AppState,
-    session_id: Uuid,
-    _author: &str,
-) -> anyhow::Result<()> {
+async fn handle_who(state: &AppState, session_id: Uuid, _author: &str) -> anyhow::Result<()> {
     let participants = state.get_participants(session_id).await;
     let text = if participants.is_empty() {
         "No participants connected.".to_string()

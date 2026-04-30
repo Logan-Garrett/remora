@@ -24,7 +24,7 @@ pub async fn handle_socket(
             message: "session not found".into(),
         };
         let _ = sink
-            .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
+            .send(Message::Text(serde_json::to_string(&msg).unwrap()))
             .await;
         return;
     }
@@ -47,7 +47,7 @@ pub async fn handle_socket(
         last_backfill_id = event.id;
         let msg = ServerMsg::Event { data: event };
         if sink
-            .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
+            .send(Message::Text(serde_json::to_string(&msg).unwrap()))
             .await
             .is_err()
         {
@@ -84,14 +84,14 @@ pub async fn handle_socket(
                                 // Send the kick event then close
                                 let msg = ServerMsg::Event { data: event };
                                 let text = serde_json::to_string(&msg).unwrap();
-                                let _ = sink.send(Message::Text(text.into())).await;
+                                let _ = sink.send(Message::Text(text)).await;
                                 break;
                             }
                         }
                     }
                     let msg = ServerMsg::Event { data: event };
                     let text = serde_json::to_string(&msg).unwrap();
-                    if sink.send(Message::Text(text.into())).await.is_err() {
+                    if sink.send(Message::Text(text)).await.is_err() {
                         break;
                     }
                 }

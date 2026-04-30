@@ -166,7 +166,7 @@ impl TestServer {
             "text": text,
         });
         sink.send(tokio_tungstenite::tungstenite::Message::Text(
-            serde_json::to_string(&msg).unwrap().into(),
+            serde_json::to_string(&msg).unwrap(),
         ))
         .await
         .expect("ws send failed");
@@ -182,11 +182,8 @@ impl TestServer {
         timeout_ms: u64,
     ) -> Option<serde_json::Value> {
         use futures_util::StreamExt;
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            stream.next(),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), stream.next()).await;
 
         match result {
             Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text)))) => {

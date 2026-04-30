@@ -29,7 +29,10 @@ async fn create_session_returns_valid_json() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert!(body["id"].is_string(), "response should contain id");
     assert_eq!(body["description"], "test session");
-    assert!(body["created_at"].is_string(), "response should contain created_at");
+    assert!(
+        body["created_at"].is_string(),
+        "response should contain created_at"
+    );
 
     // The id should be a valid UUID
     let id_str = body["id"].as_str().unwrap();

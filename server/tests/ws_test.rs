@@ -22,7 +22,10 @@ async fn ws_connect_to_valid_session() {
     // will be the "alice joined" system event delivered via PG NOTIFY).
     // We just need to confirm we receive _something_ — no error frame.
     let event = TestServer::wait_for_event(&mut stream, 3000).await;
-    assert!(event.is_some(), "should receive at least one event after connecting");
+    assert!(
+        event.is_some(),
+        "should receive at least one event after connecting"
+    );
 
     let ev = event.unwrap();
     assert_eq!(ev["type"], "event", "message type should be 'event'");
@@ -134,10 +137,13 @@ async fn ws_backfill_on_reconnect() {
 
         TestServer::send_chat(&mut sink, "dave", "message before reconnect").await;
 
+        // Give the server time to process and persist the event
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
         // Wait until we see the chat come back (confirming it was persisted)
         let mut persisted = false;
-        for _ in 0..10 {
-            if let Some(ev) = TestServer::wait_for_event(&mut stream, 2000).await {
+        for _ in 0..20 {
+            if let Some(ev) = TestServer::wait_for_event(&mut stream, 1000).await {
                 if ev["type"] == "event" {
                     if let Some(data) = ev.get("data") {
                         if data["kind"] == "chat"
@@ -206,11 +212,8 @@ async fn ws_connection_without_token_rejected() {
             // an error frame or the stream should close immediately.
             use futures_util::StreamExt;
             let (_, mut stream) = ws.split();
-            let msg = tokio::time::timeout(
-                std::time::Duration::from_millis(2000),
-                stream.next(),
-            )
-            .await;
+            let msg =
+                tokio::time::timeout(std::time::Duration::from_millis(2000), stream.next()).await;
 
             // If we got a message, it should be a close or error
             if let Ok(Some(Ok(frame))) = msg {
