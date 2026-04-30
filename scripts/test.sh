@@ -20,11 +20,20 @@ echo "=== Rust unit tests ==="
 cargo test --all
 
 echo ""
-echo "=== Rust integration tests (requires DATABASE_URL) ==="
+echo "=== Rust integration tests ==="
 if [ -n "${DATABASE_URL:-}" ]; then
-  cargo test --all -- --ignored
+  PROVIDER="${REMORA_DB_PROVIDER:-postgres}"
+  echo "  Provider: $PROVIDER"
+  echo "  URL: $DATABASE_URL"
+  cargo test --all -- --ignored --test-threads=1
 else
   echo "  SKIPPED — DATABASE_URL not set"
+  echo ""
+  echo "  Quick-run with SQLite (no setup needed):"
+  echo "    DATABASE_URL=sqlite:test.db REMORA_DB_PROVIDER=sqlite ./scripts/test.sh"
+  echo ""
+  echo "  Run with Postgres:"
+  echo "    DATABASE_URL=postgres://user:pass@localhost/remora_test REMORA_DB_PROVIDER=postgres ./scripts/test.sh"
 fi
 
 echo ""
