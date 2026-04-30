@@ -265,4 +265,9 @@ impl TestServer {
     pub fn db(&self) -> &std::sync::Arc<remora_server::db::DatabaseBackend> {
         &self.db
     }
+
+    /// Expose the workspace directory path.
+    pub fn workspace_dir(&self) -> &std::path::Path {
+        self._workspace_dir.path()
+    }
 }

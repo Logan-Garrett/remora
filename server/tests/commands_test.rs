@@ -321,3 +321,268 @@ async fn cmd_kick_disconnects_target() {
         let _ = msg;
     }
 }
+
+// ── /repo_add ──────────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn cmd_repo_add_clones_repo() {
+    // Create a temp bare git repo that can be cloned
+    let tmp = tempfile::tempdir().expect("failed to create temp dir");
+    let repo_path = tmp.path().join("test-repo.git");
+    let status = std::process::Command::new("git")
+        .args(["init", "--bare", repo_path.to_str().unwrap()])
+        .output()
+        .expect("git init failed");
+    assert!(status.status.success(), "git init --bare should succeed");
+
+    let server = TestServer::start().await;
+    let session_id = server.create_session("repo-add-test").await;
+
+    let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
+    let _ = TestServer::drain_events(&mut stream, 1500).await;
+
+    let git_url = format!("file://{}", repo_path.display());
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "repo_add", "author": "alice", "git_url": git_url}),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev
+                    .get("data")
+                    .is_some_and(|d| d["kind"] == "repo_change" && d["payload"]["action"] == "add")
+        },
+        10000,
+    )
+    .await;
+
+    assert!(ev.is_some(), "should receive a repo_change add event");
+    let data = ev.unwrap();
+    assert_eq!(data["data"]["payload"]["name"], "test-repo");
+
+    // Verify the repo was registered in DB
+    let db = server.db();
+    let names = db.list_repo_names(session_id).await.unwrap();
+    assert!(names.contains(&"test-repo".to_string()));
+}
+
+// ── /repo_remove ───────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn cmd_repo_remove_deletes() {
+    // Create a temp bare git repo
+    let tmp = tempfile::tempdir().expect("failed to create temp dir");
+    let repo_path = tmp.path().join("removeme.git");
+    let status = std::process::Command::new("git")
+        .args(["init", "--bare", repo_path.to_str().unwrap()])
+        .output()
+        .expect("git init failed");
+    assert!(status.status.success(), "git init --bare should succeed");
+
+    let server = TestServer::start().await;
+    let session_id = server.create_session("repo-rm-test").await;
+
+    let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
+    let _ = TestServer::drain_events(&mut stream, 1500).await;
+
+    // First add the repo
+    let git_url = format!("file://{}", repo_path.display());
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "repo_add", "author": "alice", "git_url": git_url}),
+    )
+    .await;
+
+    let _ = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev
+                    .get("data")
+                    .is_some_and(|d| d["kind"] == "repo_change" && d["payload"]["action"] == "add")
+        },
+        10000,
+    )
+    .await;
+
+    // Now remove it
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "repo_remove", "author": "alice", "name": "removeme"}),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "repo_change" && d["payload"]["action"] == "remove"
+                })
+        },
+        10000,
+    )
+    .await;
+
+    assert!(ev.is_some(), "should receive a repo_change remove event");
+    let data = ev.unwrap();
+    assert_eq!(data["data"]["payload"]["name"], "removeme");
+
+    // Verify repo is gone from DB
+    let db = server.db();
+    let names = db.list_repo_names(session_id).await.unwrap();
+    assert!(
+        !names.contains(&"removeme".to_string()),
+        "repo should be removed from DB"
+    );
+}
+
+// ── /diff with repo ────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn cmd_diff_with_repo() {
+    // Create a temp git repo with a commit and then modify a file
+    let tmp = tempfile::tempdir().expect("failed to create temp dir");
+    let repo_path = tmp.path().join("diffrepo");
+
+    // Init, add a file, commit
+    let init = std::process::Command::new("git")
+        .args(["init", repo_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+
+    std::fs::write(repo_path.join("hello.txt"), "original").unwrap();
+
+    let _ = std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo_path)
+        .output()
+        .unwrap();
+    let _ = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "init",
+        ])
+        .current_dir(&repo_path)
+        .output()
+        .unwrap();
+
+    let server = TestServer::start().await;
+    let session_id = server.create_session("diff-test").await;
+
+    let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
+    let _ = TestServer::drain_events(&mut stream, 1500).await;
+
+    // Add the repo
+    let git_url = format!("file://{}", repo_path.display());
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "repo_add", "author": "alice", "git_url": git_url}),
+    )
+    .await;
+
+    let _ = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev
+                    .get("data")
+                    .is_some_and(|d| d["kind"] == "repo_change" && d["payload"]["action"] == "add")
+        },
+        10000,
+    )
+    .await;
+
+    // Modify the file in the cloned workspace.
+    // The server clones repos into workspace_dir/session_id/repo_name.
+    let cloned_hello = server
+        .workspace_dir()
+        .join(session_id.to_string())
+        .join("diffrepo")
+        .join("hello.txt");
+    assert!(cloned_hello.exists(), "cloned file should exist");
+    std::fs::write(&cloned_hello, "modified content").unwrap();
+
+    // Now run /diff
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "diff", "author": "alice"}),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "diff"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("modified content")
+                })
+        },
+        10000,
+    )
+    .await;
+
+    assert!(ev.is_some(), "diff should contain the changes");
+}
+
+// ── /run ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn cmd_run_starts_claude_process() {
+    let server = TestServer::start().await;
+    let session_id = server.create_session("run-test").await;
+
+    let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
+    let _ = TestServer::drain_events(&mut stream, 1500).await;
+
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "run", "author": "alice"}),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "system"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("started")
+                })
+        },
+        10000,
+    )
+    .await;
+
+    assert!(
+        ev.is_some(),
+        "should receive a system event indicating run started"
+    );
+    let data = ev.unwrap();
+    let text = data["data"]["payload"]["text"].as_str().unwrap();
+    assert!(
+        text.contains("alice"),
+        "started event should mention the author"
+    );
+}
