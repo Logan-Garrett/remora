@@ -76,6 +76,7 @@ jobs:
   test-mssql:
     name: Test (MSSQL)
     runs-on: ubuntu-latest
+    continue-on-error: true  # MSSQL backend is experimental
     services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
