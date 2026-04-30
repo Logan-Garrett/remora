@@ -26,6 +26,13 @@ anyhow = "1"
 tokio-util = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 url = "2"
+tiberius = { version = "0.12", features = ["chrono"], optional = true }
+bb8 = { version = "0.8", optional = true }
+bb8-tiberius = { version = "0.15", optional = true }
+
+[features]
+default = []
+mssql = ["dep:tiberius", "dep:bb8", "dep:bb8-tiberius"]
 
 [dev-dependencies]
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }

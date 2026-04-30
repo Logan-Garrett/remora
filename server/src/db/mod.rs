@@ -1,3 +1,5 @@
+#[cfg(feature = "mssql")]
+pub mod mssql;
 pub mod postgres;
 pub mod sqlite;
 
@@ -138,6 +140,8 @@ pub trait Database: Send + Sync + 'static {
 pub enum DatabaseBackend {
     Postgres(postgres::PostgresDb),
     Sqlite(sqlite::SqliteDb),
+    #[cfg(feature = "mssql")]
+    Mssql(mssql::MssqlDb),
 }
 
 /// Factory: create a backend from a provider name and connection URL.
@@ -151,6 +155,11 @@ pub async fn create_backend(provider: &str, url: &str) -> anyhow::Result<Databas
             let db = sqlite::SqliteDb::connect(url).await?;
             Ok(DatabaseBackend::Sqlite(db))
         }
+        #[cfg(feature = "mssql")]
+        "mssql" | "sqlserver" => {
+            let db = mssql::MssqlDb::connect(url).await?;
+            Ok(DatabaseBackend::Mssql(db))
+        }
         other => anyhow::bail!("unsupported REMORA_DB_PROVIDER: {other}"),
     }
 }
@@ -162,6 +171,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.run_migrations().await,
             Self::Sqlite(db) => db.run_migrations().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.run_migrations().await,
         }
     }
 
@@ -172,6 +183,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.create_session(description).await,
             Self::Sqlite(db) => db.create_session(description).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.create_session(description).await,
         }
     }
 
@@ -179,6 +192,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.list_sessions().await,
             Self::Sqlite(db) => db.list_sessions().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_sessions().await,
         }
     }
 
@@ -186,6 +201,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.delete_session(session_id).await,
             Self::Sqlite(db) => db.delete_session(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.delete_session(session_id).await,
         }
     }
 
@@ -193,6 +210,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.session_exists(session_id).await,
             Self::Sqlite(db) => db.session_exists(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.session_exists(session_id).await,
         }
     }
 
@@ -203,6 +222,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_session_info(session_id).await,
             Self::Sqlite(db) => db.get_session_info(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_session_info(session_id).await,
         }
     }
 
@@ -210,6 +231,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.set_idle_since_now(session_id).await,
             Self::Sqlite(db) => db.set_idle_since_now(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.set_idle_since_now(session_id).await,
         }
     }
 
@@ -217,6 +240,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.clear_idle_since(session_id).await,
             Self::Sqlite(db) => db.clear_idle_since(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.clear_idle_since(session_id).await,
         }
     }
 
@@ -230,6 +255,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.insert_event(session_id, author, kind, payload).await,
             Self::Sqlite(db) => db.insert_event(session_id, author, kind, payload).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.insert_event(session_id, author, kind, payload).await,
         }
     }
 
@@ -237,6 +264,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_event_by_id(event_id).await,
             Self::Sqlite(db) => db.get_event_by_id(event_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_event_by_id(event_id).await,
         }
     }
 
@@ -244,6 +273,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_events_for_session(session_id).await,
             Self::Sqlite(db) => db.get_events_for_session(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_events_for_session(session_id).await,
         }
     }
 
@@ -255,6 +286,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_events_since(session_id, since_id).await,
             Self::Sqlite(db) => db.get_events_since(session_id, since_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_events_since(session_id, since_id).await,
         }
     }
 
@@ -262,6 +295,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_last_context_boundary(session_id).await,
             Self::Sqlite(db) => db.get_last_context_boundary(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_last_context_boundary(session_id).await,
         }
     }
 
@@ -269,6 +304,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.upsert_repo(session_id, name, git_url).await,
             Self::Sqlite(db) => db.upsert_repo(session_id, name, git_url).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.upsert_repo(session_id, name, git_url).await,
         }
     }
 
@@ -276,6 +313,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.delete_repo(session_id, name).await,
             Self::Sqlite(db) => db.delete_repo(session_id, name).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.delete_repo(session_id, name).await,
         }
     }
 
@@ -283,6 +322,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.list_repos(session_id).await,
             Self::Sqlite(db) => db.list_repos(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_repos(session_id).await,
         }
     }
 
@@ -290,6 +331,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.list_repo_names(session_id).await,
             Self::Sqlite(db) => db.list_repo_names(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_repo_names(session_id).await,
         }
     }
 
@@ -297,6 +340,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.insert_run(session_id, context_mode).await,
             Self::Sqlite(db) => db.insert_run(session_id, context_mode).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.insert_run(session_id, context_mode).await,
         }
     }
 
@@ -304,6 +349,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.finish_run(run_id, status).await,
             Self::Sqlite(db) => db.finish_run(run_id, status).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.finish_run(run_id, status).await,
         }
     }
 
@@ -311,6 +358,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.is_run_in_flight(session_id).await,
             Self::Sqlite(db) => db.is_run_in_flight(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.is_run_in_flight(session_id).await,
         }
     }
 
@@ -318,6 +367,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.list_global_allowlist().await,
             Self::Sqlite(db) => db.list_global_allowlist().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_global_allowlist().await,
         }
     }
 
@@ -325,6 +376,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.list_session_allowlist(session_id).await,
             Self::Sqlite(db) => db.list_session_allowlist(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_session_allowlist(session_id).await,
         }
     }
 
@@ -332,6 +385,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.add_session_allowlist(session_id, domain).await,
             Self::Sqlite(db) => db.add_session_allowlist(session_id, domain).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.add_session_allowlist(session_id, domain).await,
         }
     }
 
@@ -339,6 +394,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.remove_session_allowlist(session_id, domain).await,
             Self::Sqlite(db) => db.remove_session_allowlist(session_id, domain).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.remove_session_allowlist(session_id, domain).await,
         }
     }
 
@@ -346,6 +403,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.is_domain_blocked(domain).await,
             Self::Sqlite(db) => db.is_domain_blocked(domain).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.is_domain_blocked(domain).await,
         }
     }
 
@@ -353,6 +412,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.is_domain_global_allowed(domain).await,
             Self::Sqlite(db) => db.is_domain_global_allowed(domain).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.is_domain_global_allowed(domain).await,
         }
     }
 
@@ -364,6 +425,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.is_domain_session_allowed(session_id, domain).await,
             Self::Sqlite(db) => db.is_domain_session_allowed(session_id, domain).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.is_domain_session_allowed(session_id, domain).await,
         }
     }
 
@@ -383,6 +446,11 @@ impl Database for DatabaseBackend {
                 db.create_pending_approval(session_id, domain, url, requested_by)
                     .await
             }
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => {
+                db.create_pending_approval(session_id, domain, url, requested_by)
+                    .await
+            }
         }
     }
 
@@ -395,6 +463,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.resolve_approval(session_id, domain, approved).await,
             Self::Sqlite(db) => db.resolve_approval(session_id, domain, approved).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.resolve_approval(session_id, domain, approved).await,
         }
     }
 
@@ -406,6 +476,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_approved_pending(session_id, domain).await,
             Self::Sqlite(db) => db.get_approved_pending(session_id, domain).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_approved_pending(session_id, domain).await,
         }
     }
 
@@ -413,6 +485,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.reset_tokens_if_needed(session_id).await,
             Self::Sqlite(db) => db.reset_tokens_if_needed(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.reset_tokens_if_needed(session_id).await,
         }
     }
 
@@ -420,6 +494,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_session_usage(session_id).await,
             Self::Sqlite(db) => db.get_session_usage(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_session_usage(session_id).await,
         }
     }
 
@@ -427,6 +503,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_global_usage().await,
             Self::Sqlite(db) => db.get_global_usage().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_global_usage().await,
         }
     }
 
@@ -434,6 +512,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.add_usage(session_id, tokens).await,
             Self::Sqlite(db) => db.add_usage(session_id, tokens).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.add_usage(session_id, tokens).await,
         }
     }
 
@@ -441,6 +521,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.get_idle_sessions(idle_timeout_secs).await,
             Self::Sqlite(db) => db.get_idle_sessions(idle_timeout_secs).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_idle_sessions(idle_timeout_secs).await,
         }
     }
 
@@ -448,6 +530,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.clear_idle_since_for(session_id).await,
             Self::Sqlite(db) => db.clear_idle_since_for(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.clear_idle_since_for(session_id).await,
         }
     }
 
@@ -455,6 +539,8 @@ impl Database for DatabaseBackend {
         match self {
             Self::Postgres(db) => db.subscribe_notifications().await,
             Self::Sqlite(db) => db.subscribe_notifications().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.subscribe_notifications().await,
         }
     }
 }

@@ -102,9 +102,7 @@ impl MssqlDb {
     }
 
     /// Get a connection from the pool.
-    async fn conn(
-        &self,
-    ) -> anyhow::Result<bb8::PooledConnection<'_, ConnectionManager>> {
+    async fn conn(&self) -> anyhow::Result<bb8::PooledConnection<'_, ConnectionManager>> {
         Ok(self.pool.get().await?)
     }
 }
@@ -140,7 +138,6 @@ fn col_i64(row: &tiberius::Row, idx: usize) -> anyhow::Result<i64> {
         .ok_or_else(|| anyhow::anyhow!("NULL in non-nullable i64 column {idx}"))?;
     Ok(v)
 }
-
 
 fn col_datetime(row: &tiberius::Row, idx: usize) -> anyhow::Result<DateTime<Utc>> {
     let dto: chrono::DateTime<chrono::FixedOffset> = row
@@ -291,10 +288,7 @@ impl Database for MssqlDb {
         let mut conn = self.conn().await?;
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         let rows = conn
-            .query(
-                "SELECT COUNT(*) FROM sessions WHERE id = @P1",
-                &[&tib_id],
-            )
+            .query("SELECT COUNT(*) FROM sessions WHERE id = @P1", &[&tib_id])
             .await?
             .into_first_result()
             .await?;
@@ -518,12 +512,7 @@ impl Database for MssqlDb {
 
     // -- repos --
 
-    async fn upsert_repo(
-        &self,
-        session_id: Uuid,
-        name: &str,
-        git_url: &str,
-    ) -> anyhow::Result<()> {
+    async fn upsert_repo(&self, session_id: Uuid, name: &str, git_url: &str) -> anyhow::Result<()> {
         let mut conn = self.conn().await?;
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         // MERGE for upsert in T-SQL
@@ -594,11 +583,7 @@ impl Database for MssqlDb {
 
     // -- runs --
 
-    async fn insert_run(
-        &self,
-        session_id: Uuid,
-        context_mode: &str,
-    ) -> anyhow::Result<i64> {
+    async fn insert_run(&self, session_id: Uuid, context_mode: &str) -> anyhow::Result<i64> {
         let mut conn = self.conn().await?;
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         let rows = conn
@@ -672,10 +657,7 @@ impl Database for MssqlDb {
         Ok(result)
     }
 
-    async fn list_session_allowlist(
-        &self,
-        session_id: Uuid,
-    ) -> anyhow::Result<Vec<String>> {
+    async fn list_session_allowlist(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
         let mut conn = self.conn().await?;
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         let rows = conn
@@ -695,11 +677,7 @@ impl Database for MssqlDb {
         Ok(result)
     }
 
-    async fn add_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn add_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         let mut conn = self.conn().await?;
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         // Use MERGE to emulate ON CONFLICT DO NOTHING
@@ -715,11 +693,7 @@ impl Database for MssqlDb {
         Ok(())
     }
 
-    async fn remove_session_allowlist(
-        &self,
-        session_id: Uuid,
-        domain: &str,
-    ) -> anyhow::Result<()> {
+    async fn remove_session_allowlist(&self, session_id: Uuid, domain: &str) -> anyhow::Result<()> {
         let mut conn = self.conn().await?;
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         conn.execute(
@@ -982,9 +956,7 @@ impl Database for MssqlDb {
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!(
-                            "mssql notification subscriber lagged by {n} messages"
-                        );
+                        tracing::warn!("mssql notification subscriber lagged by {n} messages");
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
