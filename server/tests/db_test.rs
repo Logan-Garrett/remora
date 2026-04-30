@@ -566,6 +566,9 @@ async fn db_subscribe_and_dispatch() {
         let _ = remora_server::state::run_event_listener(listener_state).await;
     });
 
+    // Give the listener time to subscribe to DB notifications
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
     let (mut rx, _cancel) = state.subscribe(sid).await;
 
     // Insert an event into the DB (this triggers the notification channel)

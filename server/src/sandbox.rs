@@ -62,6 +62,10 @@ pub async fn create_sandbox(
         "create".to_string(),
         "--name".to_string(),
         name.clone(),
+        // Disable network access to prevent data exfiltration from the sandbox.
+        // Network access can be re-enabled later via a proxy for fetch allowlist enforcement.
+        "--network".to_string(),
+        "none".to_string(),
         "--cpus".to_string(),
         "2".to_string(),
         "--memory".to_string(),

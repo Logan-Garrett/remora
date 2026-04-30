@@ -31,8 +31,10 @@ async fn context_since_last_no_boundary_returns_all() {
         .await
         .unwrap();
 
-    assert!(ctx.contains("[alice]: hello"));
-    assert!(ctx.contains("[bob]: world"));
+    assert!(ctx.contains("<untrusted_content source=\"chat\" author=\"alice\">"));
+    assert!(ctx.contains("hello"));
+    assert!(ctx.contains("<untrusted_content source=\"chat\" author=\"bob\">"));
+    assert!(ctx.contains("world"));
 }
 
 // ── SinceLast after a claude_response returns only newer events ─────
@@ -77,14 +79,15 @@ async fn context_since_last_after_claude_response() {
         .unwrap();
 
     assert!(
-        !ctx.contains("[alice]: old message"),
+        !ctx.contains("old message"),
         "old message should not appear after boundary"
     );
     assert!(
         !ctx.contains("[Claude]: I did the thing"),
         "the boundary event itself should not appear"
     );
-    assert!(ctx.contains("[bob]: new message"));
+    assert!(ctx.contains("<untrusted_content source=\"chat\" author=\"bob\">"));
+    assert!(ctx.contains("new message"));
 }
 
 // ── Full mode returns all events ────────────────────────────────────
@@ -114,9 +117,11 @@ async fn context_full_returns_everything() {
 
     let ctx = assemble_context(db, sid, ContextMode::Full).await.unwrap();
 
-    assert!(ctx.contains("[alice]: first"));
+    assert!(ctx.contains("<untrusted_content source=\"chat\" author=\"alice\">"));
+    assert!(ctx.contains("first"));
     assert!(ctx.contains("[Claude]: response"));
-    assert!(ctx.contains("[bob]: second"));
+    assert!(ctx.contains("<untrusted_content source=\"chat\" author=\"bob\">"));
+    assert!(ctx.contains("second"));
 }
 
 // ── clear_marker acts as context boundary ───────────────────────────
@@ -162,7 +167,8 @@ async fn context_clear_marker_boundary() {
         !ctx.contains("before clear"),
         "events before clear_marker should be excluded in SinceLast"
     );
-    assert!(ctx.contains("[bob]: after clear"));
+    assert!(ctx.contains("<untrusted_content source=\"chat\" author=\"bob\">"));
+    assert!(ctx.contains("after clear"));
 }
 
 // ── Event formatting: chat ──────────────────────────────────────────
@@ -185,7 +191,10 @@ async fn context_format_chat() {
     .unwrap();
 
     let ctx = assemble_context(db, sid, ContextMode::Full).await.unwrap();
-    assert_eq!(ctx.trim(), "[carol]: hi there");
+    assert_eq!(
+        ctx.trim(),
+        "<untrusted_content source=\"chat\" author=\"carol\">\nhi there\n</untrusted_content>"
+    );
 }
 
 // ── Event formatting: file uses untrusted_content tags ──────────────

@@ -49,7 +49,9 @@ fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String
     match kind {
         "chat" => {
             let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
-            format!("[{author}]: {text}")
+            format!(
+                "<untrusted_content source=\"chat\" author=\"{author}\">\n{text}\n</untrusted_content>"
+            )
         }
         "file" => {
             let path = payload
@@ -98,7 +100,7 @@ fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String
         }
         "tool_result" => {
             let output = payload.get("output").and_then(|v| v.as_str()).unwrap_or("");
-            format!("[tool_result]: {output}")
+            format!("<untrusted_content source=\"tool_result\">\n{output}\n</untrusted_content>")
         }
         "system" => {
             let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");

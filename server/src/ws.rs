@@ -102,14 +102,18 @@ pub async fn handle_socket(
         }
     });
 
-    // Read messages from WS client and dispatch
+    // Read messages from WS client and dispatch.
+    // The authenticated `name` from the WebSocket connection is passed as the verified
+    // author, overriding any client-supplied author field to prevent impersonation.
     let recv_state = state.clone();
+    let recv_name = name.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
             match msg {
                 Message::Text(text) => {
                     if let Ok(client_msg) = serde_json::from_str::<ClientMsg>(&text) {
-                        commands::dispatch(recv_state.clone(), session_id, client_msg).await;
+                        commands::dispatch(recv_state.clone(), session_id, client_msg, &recv_name)
+                            .await;
                     }
                 }
                 Message::Close(_) => break,
