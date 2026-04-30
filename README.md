@@ -41,7 +41,7 @@ Everything is persisted in the database. Reconnect anytime and get the full hist
 
 ## Important Notes
 
-- **Security**: By default, Claude runs with `--dangerously-skip-permissions` on the server host. Set `REMORA_SKIP_PERMISSIONS=false` to disable this. The Docker sandbox feature (`REMORA_USE_SANDBOX=true`) provides isolation but is not enabled by default.
+- **Security**: By default, Claude runs with `--dangerously-skip-permissions` on the server host. Set `REMORA_SKIP_PERMISSIONS=false` to disable this. The Docker sandbox module exists for workspace isolation but is not yet toggled by an environment variable.
 - **One run at a time**: Only one Claude run per session. Additional `/run` requests are queued/rejected while one is in flight.
 - **Max turns**: Claude runs are capped at 5 agentic turns per invocation (hardcoded).
 - **Fetch limits**: `/fetch` truncates responses at 100KB.
@@ -58,14 +58,24 @@ Everything is persisted in the database. Reconnect anytime and get the full hist
 
 ## Setup
 
+### Quick start (interactive)
+
+```bash
+git clone https://github.com/Logan-Garrett/remora.git && cd remora
+./scripts/setup.sh        # walks you through server + client setup
+```
+
+The setup script handles database selection (SQLite by default — no external DB needed), token generation, building, and prints the Neovim config to add.
+
+### Manual setup
+
 ### 1. Server
 
 ```bash
 # -- Postgres setup (skip for SQLite) --
 sudo -u postgres psql -c "CREATE USER remora WITH PASSWORD 'your-password';"
 sudo -u postgres psql -c "CREATE DATABASE remora OWNER remora;"
-sudo -u postgres psql -d remora -c "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";"
-sudo -u postgres psql -d remora -c "GRANT ALL ON SCHEMA public TO remora;"
+# The uuid-ossp extension and all tables are created automatically by migrations.
 
 # -- Configure --
 cp .env.example .env
@@ -131,7 +141,7 @@ Add to your Neovim config (lazy.nvim):
 |---|---|---|
 | `bridge` | `"remora-bridge"` | Path to the bridge binary |
 | `url` | `"http://localhost:7200"` | Server URL |
-| `token` | `""` | Team token (or set `REMORA_TEAM_TOKEN` env var) |
+| `token` | `$REMORA_TEAM_TOKEN` or `""` | Team token (falls back to env var) |
 | `name` | `vim.fn.hostname()` | Your display name |
 
 ### 3. Cross-compile for ARM Linux (Raspberry Pi, etc.)
@@ -163,7 +173,7 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 | Key | Action |
 |---|---|
 | `<CR>` | Send message (or execute slash command) |
-| `<S-CR>` or `<C-j>` | Insert newline |
+| `<S-CR>` | Insert newline |
 | `<Esc>` / `q` | Close the Remora window (stays connected) |
 | `G` (in log) | Re-enable auto-scroll after scrolling up |
 
@@ -179,7 +189,7 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 | `/fetch <url>` | Fetch and inline URL content |
 | `/who` | List connected participants |
 | `/session info` | Current session metadata |
-| `/session new <url> "<desc>"` | Create a new session |
+| `/session new <git-url> [<git-url>...] "<desc>"` | Create a new session |
 | `/repo list` | List repos in session |
 | `/repo add <url>` | Clone a repo into the workspace |
 | `/repo remove <name>` | Remove a repo |
