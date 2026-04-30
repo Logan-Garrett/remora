@@ -28,3 +28,11 @@ check:
     cargo check --all-targets
     cargo clippy -- -D warnings
     cargo fmt --check
+
+# Generate test coverage report
+coverage:
+    ./scripts/coverage.sh
+
+# Generate HTML coverage report
+coverage-html:
+    ./scripts/coverage.sh html
