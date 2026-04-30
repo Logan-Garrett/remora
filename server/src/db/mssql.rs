@@ -592,9 +592,12 @@ impl Database for MssqlDb {
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         let rows = conn
             .query(
-                "INSERT INTO session_runs (session_id, status, context_mode) \
-                 OUTPUT INSERTED.id \
-                 VALUES (@P1, 'running', @P2)",
+                "IF NOT EXISTS (SELECT 1 FROM session_runs WHERE session_id = @P1 AND status = 'running') \
+                 BEGIN \
+                     INSERT INTO session_runs (session_id, status, context_mode) \
+                     OUTPUT INSERTED.id \
+                     VALUES (@P1, 'running', @P2) \
+                 END",
                 &[&tib_id, &context_mode],
             )
             .await?
@@ -604,7 +607,7 @@ impl Database for MssqlDb {
         let id = rows
             .first()
             .map(|r| col_i64(r, 0))
-            .ok_or_else(|| anyhow::anyhow!("insert_run returned no rows"))??;
+            .ok_or_else(|| anyhow::anyhow!("A run is already in progress for this session"))??;
         Ok(id)
     }
 

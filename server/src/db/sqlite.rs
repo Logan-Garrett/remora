@@ -339,17 +339,21 @@ impl Database for SqliteDb {
     async fn insert_run(&self, session_id: Uuid, context_mode: &str) -> anyhow::Result<i64> {
         let sid_str = session_id.to_string();
         let now_str = Utc::now().to_rfc3339();
-        let id: (i64,) = sqlx::query_as(
+        let row: Option<(i64,)> = sqlx::query_as(
             "INSERT INTO session_runs (session_id, started_at, status, heartbeat, context_mode) \
-             VALUES (?, ?, 'running', ?, ?) RETURNING id",
+             SELECT ?, ?, 'running', ?, ? \
+             WHERE NOT EXISTS (SELECT 1 FROM session_runs WHERE session_id = ? AND status = 'running') \
+             RETURNING id",
         )
         .bind(&sid_str)
         .bind(&now_str)
         .bind(&now_str)
         .bind(context_mode)
-        .fetch_one(&self.pool)
+        .bind(&sid_str)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(id.0)
+        row.map(|(id,)| id)
+            .ok_or_else(|| anyhow::anyhow!("A run is already in progress for this session"))
     }
 
     async fn finish_run(&self, run_id: i64, status: &str) -> anyhow::Result<()> {

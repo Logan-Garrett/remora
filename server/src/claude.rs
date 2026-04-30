@@ -17,19 +17,6 @@ pub async fn run_claude(
 ) -> anyhow::Result<()> {
     let db = &state.db;
 
-    // Check no run currently in flight
-    if state.is_run_in_flight(session_id).await {
-        insert_event(
-            db,
-            session_id,
-            "system",
-            "system",
-            serde_json::json!({"text": "A run is already in progress for this session."}),
-        )
-        .await?;
-        return Ok(());
-    }
-
     // Check quota
     if let Err(e) = quota::check_quota(db, session_id, state.config.global_daily_cap).await {
         insert_event(
@@ -43,8 +30,25 @@ pub async fn run_claude(
         return Ok(());
     }
 
-    // Insert run record
-    let run_id = db.insert_run(session_id, context_mode.as_str()).await?;
+    // Atomically insert run record (fails if a run is already in flight)
+    let run_id = match db.insert_run(session_id, context_mode.as_str()).await {
+        Ok(id) => id,
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("already in progress") {
+                insert_event(
+                    db,
+                    session_id,
+                    "system",
+                    "system",
+                    serde_json::json!({"text": "A run is already in progress for this session."}),
+                )
+                .await?;
+                return Ok(());
+            }
+            return Err(e);
+        }
+    };
 
     // Assemble context
     let prompt = match context::assemble_context(db, session_id, context_mode).await {
