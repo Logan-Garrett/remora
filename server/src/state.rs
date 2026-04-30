@@ -19,6 +19,7 @@ pub struct Config {
     pub claude_cmd: String,
     pub docker_image: String,
     pub skip_permissions: bool,
+    pub use_sandbox: bool,
 }
 
 impl Config {
@@ -46,6 +47,9 @@ impl Config {
             skip_permissions: std::env::var("REMORA_SKIP_PERMISSIONS")
                 .map(|v| v != "false" && v != "0")
                 .unwrap_or(true),
+            use_sandbox: std::env::var("REMORA_USE_SANDBOX")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false),
         }
     }
 }
