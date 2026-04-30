@@ -23,8 +23,8 @@ jobs:
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check
 
-  rust-test:
-    name: Rust tests
+  test-postgres:
+    name: Test (Postgres)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -42,6 +42,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgres://remora_test:test@localhost/remora_test
+      REMORA_DB_PROVIDER: postgres
       REMORA_TEAM_TOKEN: test-token
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +54,63 @@ jobs:
           psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
       - name: Run unit tests
         run: cargo test --all
-      - name: Run integration tests (requires database, serial to avoid DB races)
+      - name: Run integration tests
         run: cargo test --all -- --ignored --test-threads=1
+
+  test-sqlite:
+    name: Test (SQLite)
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "sqlite:remora_test.db"
+      REMORA_DB_PROVIDER: sqlite
+      REMORA_TEAM_TOKEN: test-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run unit tests
+        run: cargo test --all
+      - name: Run integration tests
+        run: cargo test --all -- --ignored --test-threads=1
+
+  test-mssql:
+    name: Test (MSSQL)
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: "Remora_Test_123!"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -C -Q 'SELECT 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -Q 'SELECT 1'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 30s
+    env:
+      DATABASE_URL: "server=localhost;database=remora_test;user=sa;password=Remora_Test_123!;TrustServerCertificate=true"
+      REMORA_DB_PROVIDER: mssql
+      REMORA_TEAM_TOKEN: test-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Create test database
+        run: |
+          for i in $(seq 1 30); do
+            /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -C -Q "SELECT 1" > /dev/null 2>&1 && break || true
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -Q "SELECT 1" > /dev/null 2>&1 && break || true
+            sleep 2
+          done
+          /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -C -Q "CREATE DATABASE remora_test" 2>/dev/null || \
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -Q "CREATE DATABASE remora_test" 2>/dev/null || true
+      - name: Build with MSSQL support
+        run: cargo build -p remora-server --features mssql
+      - name: Run integration tests
+        run: cargo test -p remora-server --features mssql -- --ignored --test-threads=1
 
   neovim-test:
     name: Neovim plugin tests
