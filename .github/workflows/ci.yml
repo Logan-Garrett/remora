@@ -53,8 +53,8 @@ jobs:
           psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
       - name: Run unit tests
         run: cargo test --all
-      - name: Run integration tests (requires database)
-        run: cargo test --all -- --ignored
+      - name: Run integration tests (requires database, serial to avoid DB races)
+        run: cargo test --all -- --ignored --test-threads=1
 
   neovim-test:
     name: Neovim plugin tests
