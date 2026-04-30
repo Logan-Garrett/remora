@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Remora — Collaborative Claude Code Sessions</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">
+        <span class="logo-bracket">{</span> remora <span class="logo-bracket">}</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#quickstart">Quick Start</a>
+        <a href="https://github.com/Logan-Garrett/remora" class="nav-github" target="_blank" rel="noopener">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+      <button class="nav-toggle" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-glow"></div>
+    <div class="container">
+      <div class="hero-badge">Open Source Neovim Plugin</div>
+      <h1 class="hero-title">
+        <span class="hero-name">Remora</span>
+        <span class="hero-sep">&mdash;</span>
+        <span class="hero-tagline">Collaborative Claude Code Sessions</span>
+      </h1>
+      <p class="hero-desc">
+        Multiple devs share a single Claude session with a shared, append-only event log.
+        Chat freely, add context, and invoke Claude together &mdash; all from inside Neovim.
+      </p>
+      <div class="hero-actions">
+        <a href="#quickstart" class="btn btn-primary">Get Started</a>
+        <a href="https://github.com/Logan-Garrett/remora" class="btn btn-secondary" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+      <div class="hero-visual">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <span class="terminal-dot dot-red"></span>
+            <span class="terminal-dot dot-yellow"></span>
+            <span class="terminal-dot dot-green"></span>
+            <span class="terminal-title">nvim &mdash; remora session</span>
+          </div>
+          <div class="terminal-body">
+            <div class="terminal-line"><span class="t-prompt">alice &gt;</span> Let's add error handling to the API routes</div>
+            <div class="terminal-line"><span class="t-prompt">bob &gt;</span> <span class="t-cmd">/add</span> src/routes.rs</div>
+            <div class="terminal-line"><span class="t-prompt">alice &gt;</span> <span class="t-cmd">/run</span></div>
+            <div class="terminal-line"><span class="t-claude">claude</span> <span class="t-tool">[edit src/routes.rs]</span> Adding Result types and proper error propagation...</div>
+            <div class="terminal-line"><span class="t-claude">claude</span> Done. Added error handling to all 4 route handlers with custom error types.</div>
+            <div class="terminal-line"><span class="t-prompt">bob &gt;</span> Looks great! <span class="t-cmd">/diff</span></div>
+            <div class="terminal-line typing"><span class="cursor">_</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="section">
+    <div class="container">
+      <h2 class="section-title">Features</h2>
+      <p class="section-subtitle">Everything you need for collaborative AI-assisted development</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <h3>Real-Time Collaboration</h3>
+          <p>Multiple developers share a single Claude session. Everyone sees messages, tool calls, and responses as they happen.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </div>
+          <h3>Native Neovim Integration</h3>
+          <p>Telescope pickers for sessions and commands. Syntax-highlighted chat window. Feels like a natural part of your editor.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <h3>Shared Context</h3>
+          <p>Inline files, fetch URLs, view diffs &mdash; everyone contributes context that Claude uses when invoked.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <h3>Append-Only Event Log</h3>
+          <p>Everything persisted in Postgres. Reconnect anytime and get the full history. Nothing is ever lost.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+          <h3>Stateless Server</h3>
+          <p>Rust (axum) server with WebSocket fan-out via Postgres LISTEN/NOTIFY. Restart anytime &mdash; no state lost.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3>Team Auth &amp; Quotas</h3>
+          <p>Shared team tokens, per-session allowlists for URL fetching, and global daily token caps for cost control.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works" class="section section-alt">
+    <div class="container">
+      <h2 class="section-title">How It Works</h2>
+      <p class="section-subtitle">From session creation to collaborative AI-powered coding</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h3>Create a Session</h3>
+            <p>One dev creates a session, optionally cloning git repos into the shared workspace.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h3>Everyone Joins</h3>
+            <p>Teammates connect by session ID using the Telescope picker (<code>&lt;space&gt;ms</code>).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h3>Chat and Add Context</h3>
+            <p>Send messages, inline files (<code>/add</code>), fetch URLs (<code>/fetch</code>), view diffs (<code>/diff</code>).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h3>Invoke Claude</h3>
+            <p>Anyone types <code>/run</code> and Claude sees all context since the last response.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-content">
+            <h3>Watch Claude Work</h3>
+            <p>Tool calls, file edits, and responses stream to everyone in real-time.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">6</div>
+          <div class="step-content">
+            <h3>Iterate</h3>
+            <p>Keep chatting, adding context, and running Claude as a team. Full history persists.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="architecture-section">
+        <h3 class="subsection-title">Architecture</h3>
+        <div class="architecture-img">
+          <img src="assets/architecture.svg" alt="Remora architecture diagram showing Neovim clients, bridge binary, server, Postgres, and Claude CLI" loading="lazy">
+        </div>
+        <div class="arch-legend">
+          <div class="arch-item">
+            <span class="arch-dot" style="background:#89b4fa"></span>
+            <strong>Neovim Plugin</strong> &mdash; Lua + Telescope. Communicates via a Rust bridge binary over WebSocket.
+          </div>
+          <div class="arch-item">
+            <span class="arch-dot" style="background:#f38ba8"></span>
+            <strong>Server</strong> &mdash; Rust (axum). Auth, WebSocket fan-out via Postgres LISTEN/NOTIFY. Stateless.
+          </div>
+          <div class="arch-item">
+            <span class="arch-dot" style="background:#a6e3a1"></span>
+            <strong>Postgres</strong> &mdash; Append-only event log, session metadata, allowlists, quotas.
+          </div>
+          <div class="arch-item">
+            <span class="arch-dot" style="background:#fab387"></span>
+            <strong>Claude CLI</strong> &mdash; Invoked on the server host. Streams output as events.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section id="screenshots" class="section">
+    <div class="container">
+      <h2 class="section-title">Screenshots</h2>
+      <p class="section-subtitle">See Remora in action inside Neovim</p>
+      <div class="screenshots-grid">
+        <div class="screenshot-card">
+          <div class="screenshot-label">
+            <span class="screenshot-key">&lt;space&gt;ms</span>
+            Session Picker
+          </div>
+          <div class="screenshot-img">
+            <img src="assets/session-picker.svg" alt="Telescope session picker showing available Remora sessions" loading="lazy">
+          </div>
+          <p class="screenshot-desc">Browse and join sessions with Telescope. See session descriptions, participant counts, and repo info at a glance.</p>
+        </div>
+        <div class="screenshot-card">
+          <div class="screenshot-label">
+            <span class="screenshot-key">&lt;space&gt;mm</span>
+            Chat Window
+          </div>
+          <div class="screenshot-img">
+            <img src="assets/chat-window.svg" alt="Remora shared chat window with syntax-highlighted events" loading="lazy">
+          </div>
+          <p class="screenshot-desc">Real-time event log with syntax highlighting. Everyone sees chat, tool calls, and Claude's responses as they happen.</p>
+        </div>
+        <div class="screenshot-card">
+          <div class="screenshot-label">
+            <span class="screenshot-key">&lt;space&gt;mc</span>
+            Command Picker
+          </div>
+          <div class="screenshot-img">
+            <img src="assets/command-picker.svg" alt="Telescope command picker for Remora actions" loading="lazy">
+          </div>
+          <p class="screenshot-desc">Fuzzy-searchable command palette for all Remora actions. Quick access to every feature without memorizing keybindings.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section id="quickstart" class="section section-alt">
+    <div class="container">
+      <h2 class="section-title">Quick Start</h2>
+      <p class="section-subtitle">Get up and running in minutes</p>
+
+      <div class="quickstart-grid">
+        <div class="qs-card">
+          <div class="qs-header">
+            <span class="qs-num">1</span>
+            <h3>Server Setup</h3>
+          </div>
+          <p>Requires Postgres and the <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude CLI</a> installed and authenticated.</p>
+          <div class="code-block">
+            <div class="code-header">
+              <span>bash</span>
+              <button class="copy-btn" data-target="server-code" aria-label="Copy code">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+            <pre id="server-code"><code><span class="c-comment"># Create database</span>
+sudo -u postgres psql -c \
+  "CREATE USER remora WITH PASSWORD 'your-password';"
+sudo -u postgres psql -c \
+  "CREATE DATABASE remora OWNER remora;"
+
+<span class="c-comment"># Configure</span>
+cp .env.example .env
+<span class="c-comment"># Edit .env with DATABASE_URL, REMORA_TEAM_TOKEN</span>
+
+<span class="c-comment"># Build and run</span>
+cargo build --release -p remora-server
+source .env && ./target/release/remora-server</code></pre>
+          </div>
+        </div>
+
+        <div class="qs-card">
+          <div class="qs-header">
+            <span class="qs-num">2</span>
+            <h3>Neovim Plugin</h3>
+          </div>
+          <p>Build the bridge binary, then add to your config with lazy.nvim:</p>
+          <div class="code-block">
+            <div class="code-header">
+              <span>lua</span>
+              <button class="copy-btn" data-target="plugin-code" aria-label="Copy code">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+            <pre id="plugin-code"><code>{
+  <span class="c-string">"Logan-Garrett/remora"</span>,
+  dependencies = {
+    <span class="c-string">"nvim-telescope/telescope.nvim"</span>
+  },
+  config = <span class="c-keyword">function</span>()
+    <span class="c-func">require</span>(<span class="c-string">"remora"</span>).setup({
+      bridge = vim.fn.expand(<span class="c-string">"path/to/remora-bridge"</span>),
+      url    = <span class="c-string">"http://your-server:7200"</span>,
+      token  = <span class="c-string">"your-team-token"</span>,
+      name   = <span class="c-string">"yourname"</span>,
+    })
+    <span class="c-func">require</span>(<span class="c-string">"telescope"</span>).load_extension(<span class="c-string">"remora"</span>)
+  <span class="c-keyword">end</span>,
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="qs-card qs-card-wide">
+          <div class="qs-header">
+            <span class="qs-num">3</span>
+            <h3>Start Collaborating</h3>
+          </div>
+          <div class="keybindings-table">
+            <table>
+              <thead>
+                <tr><th>Key</th><th>Action</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>&lt;leader&gt;mm</code></td><td>Toggle Remora window</td></tr>
+                <tr><td><code>&lt;leader&gt;ms</code></td><td>Browse sessions (Telescope)</td></tr>
+                <tr><td><code>&lt;leader&gt;mc</code></td><td>Command picker</td></tr>
+                <tr><td><code>&lt;leader&gt;mn</code></td><td>Create new session</td></tr>
+                <tr><td><code>&lt;leader&gt;mr</code></td><td>Run Claude</td></tr>
+                <tr><td><code>&lt;leader&gt;md</code></td><td>Show diff</td></tr>
+                <tr><td><code>&lt;leader&gt;mw</code></td><td>Who's connected</td></tr>
+                <tr><td><code>&lt;leader&gt;ml</code></td><td>Leave session</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Built With Remora -->
+  <section class="section built-with">
+    <div class="container">
+      <div class="built-with-inner">
+        <div class="built-with-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <h2>Built with Remora</h2>
+        <p>
+          This documentation site was itself created collaboratively using Remora.
+          A developer and Claude worked together in a shared session &mdash; the developer
+          described the vision, added context about the project, and Claude generated
+          the code. Real-time collaboration between humans and AI, exactly as intended.
+        </p>
+        <div class="built-with-stack">
+          <span class="tech-tag">HTML</span>
+          <span class="tech-tag">CSS</span>
+          <span class="tech-tag">JavaScript</span>
+          <span class="tech-tag">Claude Code</span>
+          <span class="tech-tag">Neovim</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="logo-bracket">{</span> remora <span class="logo-bracket">}</span>
+          <span class="footer-sep">&mdash;</span>
+          <span class="footer-copy">MIT License</span>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/Logan-Garrett/remora" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/Logan-Garrett/remora/issues" target="_blank" rel="noopener">Issues</a>
+          <a href="https://github.com/Logan-Garrett/remora/pulls" target="_blank" rel="noopener">Pull Requests</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

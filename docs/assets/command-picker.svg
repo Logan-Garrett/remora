@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" font-family="JetBrains Mono, Menlo, monospace" font-size="12">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e1e2e"/>
+      <stop offset="100%" stop-color="#181825"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="480" rx="10" fill="url(#bg3)"/>
+  <rect width="800" height="32" rx="10" fill="#313244"/>
+  <rect y="20" width="800" height="12" fill="#313244"/>
+  <circle cx="20" cy="16" r="6" fill="#f38ba8"/>
+  <circle cx="38" cy="16" r="6" fill="#f9e2af"/>
+  <circle cx="56" cy="16" r="6" fill="#a6e3a1"/>
+  <text x="400" y="20" fill="#cdd6f4" text-anchor="middle" font-size="12">nvim</text>
+
+  <!-- Telescope header -->
+  <rect x="100" y="52" width="600" height="28" rx="6" fill="#313244" stroke="#585b70" stroke-width="1"/>
+  <text x="120" y="70" fill="#89b4fa" font-size="12">Remora Commands</text>
+  <rect x="100" y="80" width="600" height="1" fill="#585b70"/>
+
+  <!-- Search -->
+  <rect x="100" y="82" width="600" height="26" fill="#1e1e2e" stroke="#585b70" stroke-width="1"/>
+  <text x="110" y="99" fill="#f5c2e7">></text>
+  <text x="125" y="99" fill="#cdd6f4">_</text>
+
+  <!-- Results -->
+  <rect x="100" y="108" width="600" height="340" fill="#1e1e2e" stroke="#585b70" stroke-width="1"/>
+
+  <!-- Selected -->
+  <rect x="101" y="110" width="598" height="22" fill="#45475a"/>
+  <text x="112" y="126" fill="#a6e3a1" font-size="11">&#9654;</text>
+  <text x="135" y="126" fill="#cdd6f4" font-size="11">Run Claude</text>
+  <text x="330" y="126" fill="#6c7086" font-size="11">Invoke Claude with context since last response</text>
+
+  <text x="112" y="148" fill="#cdd6f4" font-size="11">&#9654;&#9654;</text>
+  <text x="135" y="148" fill="#6c7086" font-size="11">Run Claude (full)</text>
+  <text x="330" y="148" fill="#6c7086" font-size="11">Invoke Claude with the full event log</text>
+
+  <text x="112" y="170" fill="#cdd6f4" font-size="11">&#x1f4ca;</text>
+  <text x="135" y="170" fill="#6c7086" font-size="11">Diff</text>
+  <text x="330" y="170" fill="#6c7086" font-size="11">Show git diff across all repos</text>
+
+  <text x="112" y="192" fill="#cdd6f4" font-size="11">&#x1f9f9;</text>
+  <text x="135" y="192" fill="#6c7086" font-size="11">Clear context</text>
+  <text x="330" y="192" fill="#6c7086" font-size="11">Reset the 'since last run' baseline</text>
+
+  <text x="112" y="214" fill="#cdd6f4" font-size="11">&#x1f465;</text>
+  <text x="135" y="214" fill="#6c7086" font-size="11">Who's connected</text>
+  <text x="330" y="214" fill="#6c7086" font-size="11">List connected participants</text>
+
+  <text x="112" y="236" fill="#cdd6f4" font-size="11">&#8505;</text>
+  <text x="135" y="236" fill="#6c7086" font-size="11">Session info</text>
+  <text x="330" y="236" fill="#6c7086" font-size="11">Show current session metadata</text>
+
+  <text x="112" y="258" fill="#cdd6f4" font-size="11">&#x1f4ce;</text>
+  <text x="135" y="258" fill="#6c7086" font-size="11">Add file</text>
+  <text x="330" y="258" fill="#6c7086" font-size="11">Inline a workspace file as context</text>
+
+  <text x="112" y="280" fill="#cdd6f4" font-size="11">&#x1f310;</text>
+  <text x="135" y="280" fill="#6c7086" font-size="11">Fetch URL</text>
+  <text x="330" y="280" fill="#6c7086" font-size="11">Fetch and inline URL content</text>
+
+  <text x="112" y="302" fill="#cdd6f4" font-size="11">&#10133;</text>
+  <text x="135" y="302" fill="#6c7086" font-size="11">Add repo</text>
+  <text x="330" y="302" fill="#6c7086" font-size="11">Clone a git repo into the workspace</text>
+
+  <text x="112" y="324" fill="#cdd6f4" font-size="11">&#x1f4e6;</text>
+  <text x="135" y="324" fill="#6c7086" font-size="11">List repos</text>
+  <text x="330" y="324" fill="#6c7086" font-size="11">Show repos in this session</text>
+
+  <text x="112" y="346" fill="#cdd6f4" font-size="11">&#x1f512;</text>
+  <text x="135" y="346" fill="#6c7086" font-size="11">Show allowlist</text>
+  <text x="330" y="346" fill="#6c7086" font-size="11">Show fetch domain allowlist</text>
+
+  <text x="120" y="430" fill="#585b70" font-size="11">11 commands | &lt;space&gt;mc to open</text>
+</svg>
