@@ -15,6 +15,9 @@ pub type NotificationRx = tokio::sync::mpsc::UnboundedReceiver<i64>;
 /// The set of operations every database backend must support.
 #[async_trait]
 pub trait Database: Send + Sync + 'static {
+    // -- health --
+    async fn ping(&self) -> anyhow::Result<()>;
+
     // -- migrations --
     async fn run_migrations(&self) -> anyhow::Result<()>;
 
@@ -167,6 +170,15 @@ pub async fn create_backend(provider: &str, url: &str) -> anyhow::Result<Databas
 // Implement the trait for the enum so we can use it directly.
 #[async_trait]
 impl Database for DatabaseBackend {
+    async fn ping(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.ping().await,
+            Self::Sqlite(db) => db.ping().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.ping().await,
+        }
+    }
+
     async fn run_migrations(&self) -> anyhow::Result<()> {
         match self {
             Self::Postgres(db) => db.run_migrations().await,

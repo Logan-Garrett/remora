@@ -219,10 +219,31 @@ async fn ws_upgrade(
         .into_response()
 }
 
+// --- Health check (no auth) ---
+
+async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.db.ping().await {
+        Ok(()) => Json(serde_json::json!({
+            "status": "ok",
+            "db": "connected",
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "unhealthy",
+                "db": format!("{e}"),
+            })),
+        )
+            .into_response(),
+    }
+}
+
 /// Build the axum `Router` with the given shared state.
 /// Extracted so that integration tests can spin up the server easily.
 pub fn build_router(shared: Arc<AppState>) -> Router {
     Router::new()
+        .route("/health", get(health_check))
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", get(ws_upgrade))

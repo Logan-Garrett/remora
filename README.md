@@ -116,6 +116,7 @@ Add to your Neovim config (lazy.nvim):
   config = function()
     require("remora").setup({
       bridge = vim.fn.expand("path/to/remora-bridge"),
+      -- These fall back to env vars: REMORA_URL, REMORA_TEAM_TOKEN, REMORA_NAME
       url = "http://your-server:7200",
       token = "your-team-token",
       name = "yourname",
