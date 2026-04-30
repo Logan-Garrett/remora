@@ -16,17 +16,20 @@ local state = {
   reconnect_attempts = 0,
   max_reconnect_attempts = 3,
   reconnect_timer = nil,
+  scroll_follow = true, -- auto-scroll to bottom; false when user scrolls up
 }
 
 -- ── Highlight groups ──────────────────────────────────────────────────
 
 local function setup_highlights()
-  vim.api.nvim_set_hl(0, "RemoraSystem", { fg = "#666666", italic = true })
-  vim.api.nvim_set_hl(0, "RemoraAuthor", { fg = "#61afef", bold = true })
-  vim.api.nvim_set_hl(0, "RemoraClaudeMsg", { fg = "#98c379" })
-  vim.api.nvim_set_hl(0, "RemoraToolCall", { fg = "#e5c07b" })
-  vim.api.nvim_set_hl(0, "RemoraError", { fg = "#e06c75", bold = true })
-  vim.api.nvim_set_hl(0, "RemoraTimestamp", { fg = "#5c6370" })
+  -- Use default=true so user colorscheme overrides take priority.
+  -- Link to standard highlight groups for non-truecolor terminal compatibility.
+  vim.api.nvim_set_hl(0, "RemoraSystem", { default = true, link = "Comment" })
+  vim.api.nvim_set_hl(0, "RemoraAuthor", { default = true, link = "Title" })
+  vim.api.nvim_set_hl(0, "RemoraClaudeMsg", { default = true, link = "String" })
+  vim.api.nvim_set_hl(0, "RemoraToolCall", { default = true, link = "Function" })
+  vim.api.nvim_set_hl(0, "RemoraError", { default = true, link = "ErrorMsg" })
+  vim.api.nvim_set_hl(0, "RemoraTimestamp", { default = true, link = "NonText" })
 end
 
 -- ── Helpers ───────────────────────────────────────────────────────────
@@ -79,8 +82,8 @@ local function append_log(line, hl_group)
       end
     end
     vim.api.nvim_set_option_value("modifiable", false, { buf = state.log_buf })
-    -- Auto-scroll to bottom if the log window is visible
-    if state.log_win and vim.api.nvim_win_is_valid(state.log_win) then
+    -- Auto-scroll to bottom only if the user hasn't scrolled up
+    if state.scroll_follow and state.log_win and vim.api.nvim_win_is_valid(state.log_win) then
       vim.api.nvim_win_set_cursor(state.log_win, { count, 0 })
     end
   end)
@@ -413,6 +416,14 @@ local function on_bridge_stdout(_, data, _)
           for _, entry in ipairs(formatted) do
             append_log(entry[1], entry[2])
           end
+          -- Notify when Claude responds and the window is hidden
+          local kind = msg.data.kind or ""
+          if kind == "claude_response" then
+            local win_visible = state.log_win and vim.api.nvim_win_is_valid(state.log_win)
+            if not win_visible then
+              vim.notify("remora: Claude responded", vim.log.levels.INFO)
+            end
+          end
         elseif msg.type == "error" then
           append_log("ERROR: " .. (msg.message or "unknown"), "RemoraError")
         end
@@ -570,6 +581,25 @@ local function create_layout()
     vim.keymap.set("n", "<Esc>", function() close_layout() end, { buffer = buf, desc = "Close remora" })
     vim.keymap.set("n", "q", function() close_layout() end, { buffer = buf, desc = "Close remora" })
   end
+
+  -- Scroll follow: G re-enables, scrolling up disables
+  vim.keymap.set("n", "G", function()
+    state.scroll_follow = true
+    local count = vim.api.nvim_buf_line_count(state.log_buf)
+    if state.log_win and vim.api.nvim_win_is_valid(state.log_win) then
+      vim.api.nvim_win_set_cursor(state.log_win, { count, 0 })
+    end
+  end, { buffer = state.log_buf, desc = "Follow new messages" })
+
+  vim.api.nvim_create_autocmd("CursorMoved", {
+    buffer = state.log_buf,
+    callback = function()
+      if not state.log_win or not vim.api.nvim_win_is_valid(state.log_win) then return end
+      local cursor = vim.api.nvim_win_get_cursor(state.log_win)[1]
+      local total = vim.api.nvim_buf_line_count(state.log_buf)
+      state.scroll_follow = (cursor >= total - 1)
+    end,
+  })
   -- Also close both when either window is closed externally (e.g. :q)
   vim.api.nvim_create_autocmd("WinClosed", {
     buffer = state.log_buf,
