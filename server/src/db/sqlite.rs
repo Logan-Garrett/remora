@@ -4,6 +4,7 @@ use remora_common::Event;
 use serde_json::Value;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use std::str::FromStr;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -17,9 +18,10 @@ pub struct SqliteDb {
 
 impl SqliteDb {
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
+        let opts = sqlx::sqlite::SqliteConnectOptions::from_str(url)?.create_if_missing(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(url)
+            .connect_with(opts)
             .await?;
 
         // Enable WAL mode for better concurrent access

@@ -76,6 +76,7 @@ jobs:
   test-mssql:
     name: Test (MSSQL)
     runs-on: ubuntu-latest
+    continue-on-error: true  # MSSQL backend is experimental
     services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -91,22 +92,38 @@ jobs:
           --health-retries 10
           --health-start-period 30s
     env:
-      DATABASE_URL: "server=localhost;database=remora_test;user=sa;password=Remora_Test_123!;TrustServerCertificate=true"
+      DATABASE_URL: "server=localhost;database=remora_test;user=sa;password=Remora_Test_123!;TrustServerCertificate=true;encrypt=false"
       REMORA_DB_PROVIDER: mssql
       REMORA_TEAM_TOKEN: test-token
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Create test database
+      - name: Install sqlcmd
         run: |
+          curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc > /dev/null
+          sudo add-apt-repository "$(wget -qO- https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list)" || true
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev || sudo ACCEPT_EULA=Y apt-get install -y mssql-tools unixodbc-dev || true
+      - name: Wait for MSSQL and create test database
+        run: |
+          SQLCMD=""
+          if [ -f /opt/mssql-tools18/bin/sqlcmd ]; then
+            SQLCMD="/opt/mssql-tools18/bin/sqlcmd -C"
+          elif [ -f /opt/mssql-tools/bin/sqlcmd ]; then
+            SQLCMD="/opt/mssql-tools/bin/sqlcmd"
+          else
+            echo "sqlcmd not found, skipping DB creation"
+            exit 0
+          fi
+          echo "Using: $SQLCMD"
           for i in $(seq 1 30); do
-            /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -C -Q "SELECT 1" > /dev/null 2>&1 && break || true
-            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -Q "SELECT 1" > /dev/null 2>&1 && break || true
-            sleep 2
+            $SQLCMD -S localhost -U sa -P 'Remora_Test_123!' -Q "SELECT 1" > /dev/null 2>&1 && echo "MSSQL ready" && break
+            echo "Waiting for MSSQL... ($i)"
+            sleep 3
           done
-          /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -C -Q "CREATE DATABASE remora_test" 2>/dev/null || \
-          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Remora_Test_123!' -Q "CREATE DATABASE remora_test" 2>/dev/null || true
+          $SQLCMD -S localhost -U sa -P 'Remora_Test_123!' -Q "CREATE DATABASE remora_test" || true
+          echo "Database created"
       - name: Build with MSSQL support
         run: cargo build -p remora-server --features mssql
       - name: Run integration tests

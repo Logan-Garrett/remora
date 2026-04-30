@@ -211,4 +211,55 @@ impl TestServer {
         }
         events
     }
+
+    /// Send an arbitrary JSON message over an existing WS connection.
+    pub async fn send_msg(
+        sink: &mut futures_util::stream::SplitSink<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+            tokio_tungstenite::tungstenite::Message,
+        >,
+        msg: serde_json::Value,
+    ) {
+        use futures_util::SinkExt;
+        sink.send(tokio_tungstenite::tungstenite::Message::Text(
+            serde_json::to_string(&msg).unwrap(),
+        ))
+        .await
+        .expect("ws send failed");
+    }
+
+    /// Wait for an event matching a predicate, with a timeout.
+    /// Returns `Some(event)` if found, `None` on timeout.
+    pub async fn wait_for_event_matching<F>(
+        stream: &mut futures_util::stream::SplitStream<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        >,
+        predicate: F,
+        timeout_ms: u64,
+    ) -> Option<serde_json::Value>
+    where
+        F: Fn(&serde_json::Value) -> bool,
+    {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            match Self::wait_for_event(stream, remaining.as_millis() as u64).await {
+                Some(ev) if predicate(&ev) => return Some(ev),
+                Some(_) => continue,
+                None => return None,
+            }
+        }
+    }
+
+    /// Expose a reference to the database backend.
+    pub fn db(&self) -> &std::sync::Arc<remora_server::db::DatabaseBackend> {
+        &self.db
+    }
 }
