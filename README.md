@@ -37,11 +37,18 @@ Everything is persisted in the database. Reconnect anytime and get the full hist
 - **Neovim Plugin** -- Lua plugin with Telescope integration. Communicates via a small Rust bridge binary over WebSocket.
 - **Server** -- Rust (axum). Handles auth, WebSocket connections, event fan-out. Stateless across restarts.
 - **Database** -- Postgres (default), SQLite, or MSSQL. Append-only event log, session metadata, allowlists, quotas.
-- **Claude CLI** -- Invoked on the server host. Streams output as events. Configurable whether permissions are skipped.
+- **Claude CLI** -- Runs on the server host (or inside a Docker sandbox). Streams tool calls and responses as events.
+- **Docker Sandbox** -- Optional per-session container isolation. Enabled with `REMORA_USE_SANDBOX=true`.
+
+### Event Flow
+
+How a `/run` flows through the system — from chat to Claude's response, broadcast to all participants.
+
+![Event Flow](assets/event-flow.svg)
 
 ## Important Notes
 
-- **Security**: By default, Claude runs with `--dangerously-skip-permissions` on the server host. Set `REMORA_SKIP_PERMISSIONS=false` to disable this. The Docker sandbox module exists for workspace isolation but is not yet toggled by an environment variable.
+- **Security**: By default, Claude runs with `--dangerously-skip-permissions` on the server host. Set `REMORA_SKIP_PERMISSIONS=false` to disable this. Set `REMORA_USE_SANDBOX=true` to run Claude inside an isolated Docker container per session.
 - **One run at a time**: Only one Claude run per session. Additional `/run` requests are queued/rejected while one is in flight.
 - **Max turns**: Claude runs are capped at 5 agentic turns per invocation (hardcoded).
 - **Fetch limits**: `/fetch` truncates responses at 100KB.
