@@ -143,6 +143,63 @@ jobs:
           chmod +x plugin/tests/run_tests.sh
           plugin/tests/run_tests.sh
 
+  sandbox-e2e:
+    name: Sandbox E2E (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sandbox image
+        run: docker build -t remora-sandbox -f Dockerfile.sandbox .
+      - name: Test container lifecycle
+        run: |
+          set -e
+
+          # Create workspace
+          mkdir -p /tmp/remora-e2e/workspace
+          echo "test file" > /tmp/remora-e2e/workspace/hello.txt
+
+          # Create container with fake API key (no real Claude calls)
+          docker create \
+            --name remora-e2e-test \
+            --cpus 2 --memory 2g --pids-limit 512 \
+            -v /tmp/remora-e2e/workspace:/workspace \
+            -e "ANTHROPIC_API_KEY=sk-ant-fake-key-for-ci-testing" \
+            -w /workspace \
+            remora-sandbox
+          echo "PASS: Container created"
+
+          # Start container
+          docker start remora-e2e-test
+          echo "PASS: Container started"
+
+          # Verify Claude CLI is installed
+          docker exec remora-e2e-test claude --version
+          echo "PASS: Claude CLI available"
+
+          # Verify workspace is mounted
+          CONTENT=$(docker exec remora-e2e-test cat /workspace/hello.txt)
+          [ "$CONTENT" = "test file" ] && echo "PASS: Workspace mounted" || (echo "FAIL: Workspace not mounted" && exit 1)
+
+          # Verify Claude picks up the API key and returns stream-json
+          OUTPUT=$(docker exec remora-e2e-test claude \
+            --dangerously-skip-permissions \
+            -p "hello" \
+            --output-format stream-json \
+            --verbose \
+            --max-turns 1 2>&1 || true)
+          echo "$OUTPUT" | grep -q '"apiKeySource":"ANTHROPIC_API_KEY"' && echo "PASS: API key detected" || (echo "FAIL: API key not detected" && exit 1)
+          echo "$OUTPUT" | grep -q '"type":"result"' && echo "PASS: stream-json result received" || (echo "FAIL: No result in output" && exit 1)
+
+          # Verify non-root user
+          WHOAMI=$(docker exec remora-e2e-test whoami)
+          [ "$WHOAMI" = "remora" ] && echo "PASS: Running as non-root (remora)" || (echo "FAIL: Running as $WHOAMI" && exit 1)
+
+          # Cleanup
+          docker rm -f remora-e2e-test
+          echo "PASS: Container destroyed"
+          echo ""
+          echo "All sandbox E2E tests passed."
+
   build:
     name: Release build
     runs-on: ubuntu-latest
