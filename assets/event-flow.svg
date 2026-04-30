@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" font-family="Inter, system-ui, sans-serif" font-size="12">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" font-family="Inter, system-ui, sans-serif" font-size="12">
   <defs>
     <linearGradient id="efbg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#1e1e2e"/>
@@ -13,14 +13,11 @@
     <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#f5c2e7"/>
     </marker>
-    <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f9e2af"/>
-    </marker>
   </defs>
-  <rect width="900" height="420" rx="12" fill="url(#efbg)"/>
+  <rect width="900" height="520" rx="12" fill="url(#efbg)"/>
   <text x="450" y="28" fill="#cdd6f4" text-anchor="middle" font-size="15" font-weight="700">How a /run flows through the system</text>
 
-  <!-- Swim lanes -->
+  <!-- Swim lane headers -->
   <text x="90" y="58" fill="#89b4fa" text-anchor="middle" font-weight="700" font-size="13">Alice</text>
   <text x="270" y="58" fill="#89b4fa" text-anchor="middle" font-weight="700" font-size="13">Bob</text>
   <text x="450" y="58" fill="#f9e2af" text-anchor="middle" font-weight="700" font-size="13">Server</text>
@@ -28,74 +25,91 @@
   <text x="810" y="58" fill="#f5c2e7" text-anchor="middle" font-weight="700" font-size="13">Claude</text>
 
   <!-- Vertical lane lines -->
-  <line x1="90" y1="68" x2="90" y2="400" stroke="#313244" stroke-width="1.5"/>
-  <line x1="270" y1="68" x2="270" y2="400" stroke="#313244" stroke-width="1.5"/>
-  <line x1="450" y1="68" x2="450" y2="400" stroke="#313244" stroke-width="1.5"/>
-  <line x1="630" y1="68" x2="630" y2="400" stroke="#313244" stroke-width="1.5"/>
-  <line x1="810" y1="68" x2="810" y2="400" stroke="#313244" stroke-width="1.5"/>
+  <line x1="90" y1="68" x2="90" y2="500" stroke="#313244" stroke-width="1.5"/>
+  <line x1="270" y1="68" x2="270" y2="500" stroke="#313244" stroke-width="1.5"/>
+  <line x1="450" y1="68" x2="450" y2="500" stroke="#313244" stroke-width="1.5"/>
+  <line x1="630" y1="68" x2="630" y2="500" stroke="#313244" stroke-width="1.5"/>
+  <line x1="810" y1="68" x2="810" y2="500" stroke="#313244" stroke-width="1.5"/>
 
-  <!-- Step 1: Alice sends chat -->
+  <!-- ① Alice sends chat -->
   <rect x="30" y="80" width="120" height="28" rx="5" fill="#45475a"/>
   <text x="90" y="98" fill="#cdd6f4" text-anchor="middle" font-size="10">"fix the auth bug"</text>
   <line x1="150" y1="94" x2="430" y2="94" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
   <text x="290" y="88" fill="#585b70" font-size="9">WS: chat message</text>
 
-  <!-- Step 2: Server inserts event -->
-  <line x1="460" y1="94" x2="610" y2="110" stroke="#a6e3a1" stroke-width="1.5" marker-end="url(#a2)"/>
-  <text x="535" y="105" fill="#585b70" font-size="9">INSERT event</text>
+  <!-- ② Server inserts event in DB -->
+  <line x1="460" y1="94" x2="610" y2="112" stroke="#a6e3a1" stroke-width="1.5" marker-end="url(#a2)"/>
+  <text x="535" y="100" fill="#585b70" font-size="9">INSERT event</text>
 
-  <!-- Step 3: DB notifies -->
-  <line x1="620" y1="120" x2="460" y2="130" stroke="#a6e3a1" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a2)"/>
-  <text x="540" y="130" fill="#a6e3a1" font-size="9">NOTIFY</text>
+  <!-- ③ DB notifies server -->
+  <line x1="620" y1="122" x2="460" y2="135" stroke="#a6e3a1" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a2)"/>
+  <text x="540" y="133" fill="#a6e3a1" font-size="9">NOTIFY</text>
 
-  <!-- Step 4: Server broadcasts to both -->
-  <line x1="440" y1="135" x2="100" y2="145" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
-  <line x1="440" y1="135" x2="280" y2="145" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
-  <text x="200" y="142" fill="#585b70" font-size="9">broadcast event</text>
+  <!-- ④ Server broadcasts to Alice + Bob -->
+  <line x1="440" y1="142" x2="100" y2="152" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <line x1="440" y1="142" x2="280" y2="152" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <text x="200" y="148" fill="#585b70" font-size="9">broadcast to all clients</text>
 
-  <!-- Step 5: Alice sends /run -->
-  <rect x="40" y="162" width="100" height="24" rx="5" fill="#45475a"/>
-  <text x="90" y="178" fill="#a6e3a1" text-anchor="middle" font-size="10">/run</text>
-  <line x1="150" y1="174" x2="430" y2="174" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <!-- ── separator ── -->
+  <line x1="30" y1="170" x2="870" y2="170" stroke="#45475a" stroke-width="0.5" stroke-dasharray="2,4"/>
 
-  <!-- Step 6: Server assembles context -->
-  <rect x="393" y="185" width="115" height="24" rx="5" fill="#45475a"/>
-  <text x="450" y="201" fill="#f9e2af" text-anchor="middle" font-size="10">assemble context</text>
+  <!-- ⑤ Alice sends /run -->
+  <rect x="40" y="182" width="100" height="26" rx="5" fill="#45475a"/>
+  <text x="90" y="200" fill="#a6e3a1" text-anchor="middle" font-size="11" font-weight="600">/run</text>
+  <line x1="150" y1="195" x2="430" y2="195" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <text x="290" y="189" fill="#585b70" font-size="9">WS: run command</text>
 
-  <!-- Step 7: Server queries events -->
-  <line x1="460" y1="209" x2="610" y2="218" stroke="#a6e3a1" stroke-width="1.5" marker-end="url(#a2)"/>
-  <text x="535" y="214" fill="#585b70" font-size="9">SELECT events</text>
-  <line x1="620" y1="225" x2="460" y2="232" stroke="#a6e3a1" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a2)"/>
+  <!-- ⑥ Server assembles context -->
+  <rect x="393" y="210" width="115" height="26" rx="5" fill="#45475a"/>
+  <text x="450" y="227" fill="#f9e2af" text-anchor="middle" font-size="10">assemble context</text>
 
-  <!-- Step 8: Server invokes Claude -->
-  <line x1="460" y1="238" x2="790" y2="248" stroke="#f5c2e7" stroke-width="1.5" marker-end="url(#a3)"/>
-  <text x="625" y="243" fill="#585b70" font-size="9">spawn claude -p "context..."</text>
+  <!-- ⑦ Server queries events from DB -->
+  <line x1="460" y1="236" x2="610" y2="246" stroke="#a6e3a1" stroke-width="1.5" marker-end="url(#a2)"/>
+  <text x="535" y="242" fill="#585b70" font-size="9">SELECT events</text>
+  <line x1="620" y1="254" x2="460" y2="262" stroke="#a6e3a1" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a2)"/>
+  <text x="540" y="262" fill="#585b70" font-size="9">event rows</text>
 
-  <!-- Step 9: Claude streams tool call -->
-  <rect x="760" y="258" width="100" height="22" rx="4" fill="#45475a"/>
-  <text x="810" y="273" fill="#e5c07b" text-anchor="middle" font-size="9">tool_call: Edit</text>
-  <line x1="790" y1="280" x2="460" y2="290" stroke="#f5c2e7" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a3)"/>
+  <!-- ⑧ Server spawns Claude -->
+  <line x1="460" y1="272" x2="790" y2="282" stroke="#f5c2e7" stroke-width="1.5" marker-end="url(#a3)"/>
+  <text x="625" y="276" fill="#585b70" font-size="9">spawn claude -p "context..."</text>
 
-  <!-- Step 10: Server inserts tool_call event -->
-  <line x1="460" y1="293" x2="610" y2="298" stroke="#a6e3a1" stroke-width="1" marker-end="url(#a2)"/>
-  <line x1="440" y1="303" x2="100" y2="310" stroke="#89b4fa" stroke-width="1" marker-end="url(#a1)"/>
-  <line x1="440" y1="303" x2="280" y2="310" stroke="#89b4fa" stroke-width="1" marker-end="url(#a1)"/>
-  <text x="170" y="308" fill="#e5c07b" font-size="9">tool_call event</text>
+  <!-- ── separator ── -->
+  <line x1="30" y1="295" x2="870" y2="295" stroke="#45475a" stroke-width="0.5" stroke-dasharray="2,4"/>
 
-  <!-- Step 11: Claude streams response -->
-  <rect x="755" y="320" width="110" height="22" rx="4" fill="#45475a"/>
-  <text x="810" y="335" fill="#a6e3a1" text-anchor="middle" font-size="9">response: "Fixed."</text>
-  <line x1="790" y1="342" x2="460" y2="350" stroke="#f5c2e7" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a3)"/>
+  <!-- ⑨ Claude streams a tool call back -->
+  <rect x="755" y="305" width="110" height="24" rx="5" fill="#45475a"/>
+  <text x="810" y="321" fill="#e5c07b" text-anchor="middle" font-size="10">tool_call: Edit</text>
+  <line x1="790" y1="329" x2="460" y2="342" stroke="#f5c2e7" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a3)"/>
+  <text x="625" y="336" fill="#585b70" font-size="9">stdout stream</text>
 
-  <!-- Step 12: Server broadcasts response -->
-  <line x1="460" y1="353" x2="610" y2="358" stroke="#a6e3a1" stroke-width="1" marker-end="url(#a2)"/>
-  <line x1="440" y1="363" x2="100" y2="370" stroke="#89b4fa" stroke-width="1" marker-end="url(#a1)"/>
-  <line x1="440" y1="363" x2="280" y2="370" stroke="#89b4fa" stroke-width="1" marker-end="url(#a1)"/>
-  <text x="170" y="368" fill="#a6e3a1" font-size="9">claude_response event</text>
+  <!-- ⑩ Server persists + broadcasts tool_call -->
+  <line x1="460" y1="348" x2="610" y2="352" stroke="#a6e3a1" stroke-width="1" marker-end="url(#a2)"/>
+  <line x1="440" y1="358" x2="100" y2="368" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <line x1="440" y1="358" x2="280" y2="368" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <text x="200" y="365" fill="#e5c07b" font-size="9">tool_call event → all clients</text>
 
-  <!-- Both see it -->
-  <rect x="35" y="375" width="110" height="20" rx="4" fill="#313244" stroke="#a6e3a1" stroke-width="1"/>
-  <text x="90" y="389" fill="#a6e3a1" text-anchor="middle" font-size="9">Claude: Fixed.</text>
-  <rect x="215" y="375" width="110" height="20" rx="4" fill="#313244" stroke="#a6e3a1" stroke-width="1"/>
-  <text x="270" y="389" fill="#a6e3a1" text-anchor="middle" font-size="9">Claude: Fixed.</text>
+  <!-- ── separator ── -->
+  <line x1="30" y1="385" x2="870" y2="385" stroke="#45475a" stroke-width="0.5" stroke-dasharray="2,4"/>
+
+  <!-- ⑪ Claude streams final response -->
+  <rect x="750" y="395" width="120" height="24" rx="5" fill="#45475a"/>
+  <text x="810" y="411" fill="#98c379" text-anchor="middle" font-size="10">text: "Fixed it."</text>
+  <line x1="790" y1="419" x2="460" y2="432" stroke="#f5c2e7" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a3)"/>
+  <text x="625" y="426" fill="#585b70" font-size="9">stdout stream</text>
+
+  <!-- ⑫ Server persists + broadcasts response -->
+  <line x1="460" y1="438" x2="610" y2="442" stroke="#a6e3a1" stroke-width="1" marker-end="url(#a2)"/>
+  <line x1="440" y1="448" x2="100" y2="458" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <line x1="440" y1="448" x2="280" y2="458" stroke="#89b4fa" stroke-width="1.5" marker-end="url(#a1)"/>
+  <text x="200" y="455" fill="#98c379" font-size="9">claude_response → all clients</text>
+
+  <!-- Both clients display the result -->
+  <rect x="30" y="470" width="120" height="24" rx="5" fill="#313244" stroke="#98c379" stroke-width="1.5"/>
+  <text x="90" y="486" fill="#98c379" text-anchor="middle" font-size="10">Claude: Fixed it.</text>
+  <rect x="210" y="470" width="120" height="24" rx="5" fill="#313244" stroke="#98c379" stroke-width="1.5"/>
+  <text x="270" y="486" fill="#98c379" text-anchor="middle" font-size="10">Claude: Fixed it.</text>
+
+  <!-- Completion marker on server -->
+  <rect x="400" y="470" width="100" height="24" rx="5" fill="#313244" stroke="#f9e2af" stroke-width="1"/>
+  <text x="450" y="486" fill="#f9e2af" text-anchor="middle" font-size="10">run complete</text>
 </svg>
