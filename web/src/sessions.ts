@@ -13,7 +13,7 @@ function showCreateModal(
 
   const descInput = el("input", {
     type: "text",
-    placeholder: "What is this session for?",
+    placeholder: "Session description",
   }) as HTMLInputElement;
 
   const errorEl = el("div", { class: "login-error" });

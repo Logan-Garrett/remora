@@ -221,6 +221,7 @@ jobs:
       REMORA_BIND: 127.0.0.1:7200
       REMORA_SKIP_PERMISSIONS: "true"
       REMORA_CLAUDE_CMD: echo
+      REMORA_WORKSPACE_DIR: /tmp/remora-e2e-workspaces
     steps:
       - uses: actions/checkout@v4
 
@@ -245,7 +246,7 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: web
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Start remora-server
         run: |

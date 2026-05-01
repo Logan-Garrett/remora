@@ -20,6 +20,16 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "mobile-chrome",
+      use: { ...devices["Pixel 5"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
+    {
+      name: "mobile-safari",
+      use: { ...devices["iPhone 12"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
   ],
   // No webServer block — CI starts servers separately so they are already up
 });
