@@ -77,6 +77,13 @@ impl Database for PostgresDb {
         Ok(exists)
     }
 
+    async fn count_sessions(&self) -> anyhow::Result<i64> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
     async fn get_session_info(
         &self,
         session_id: Uuid,
@@ -155,6 +162,34 @@ impl Database for PostgresDb {
              FROM events WHERE session_id = $1 ORDER BY id",
         )
         .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, session_id, timestamp, author, kind, payload)| Event {
+                id,
+                session_id,
+                timestamp,
+                author,
+                kind,
+                payload,
+            })
+            .collect())
+    }
+
+    async fn get_recent_events_for_session(
+        &self,
+        session_id: Uuid,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Event>> {
+        let rows = sqlx::query_as::<_, (i64, Uuid, DateTime<Utc>, Option<String>, String, Value)>(
+            "SELECT id, session_id, timestamp, author, kind, payload \
+             FROM (SELECT id, session_id, timestamp, author, kind, payload \
+                   FROM events WHERE session_id = $1 ORDER BY id DESC LIMIT $2) sub \
+             ORDER BY id",
+        )
+        .bind(session_id)
+        .bind(limit)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows

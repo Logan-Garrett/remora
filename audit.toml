@@ -1,0 +1,13 @@
+# cargo-audit / rustsec configuration
+# https://github.com/rustsec/rustsec/blob/main/cargo-audit/audit.toml.example
+
+[advisories]
+# Ignore advisories with no available patch (transitive dependencies we don't control)
+ignore = [
+    # rsa timing side-channel — transitive dep of sqlx-postgres, no patch available
+    # We don't use RSA directly; this is pulled in by the Postgres TLS stack
+    "RUSTSEC-2023-0071",
+]
+
+# Warn on unsound/unmaintained but don't fail the build
+informational_warnings = ["unmaintained", "unsound", "notice"]

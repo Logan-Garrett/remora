@@ -31,6 +31,8 @@ async fn state_participant_join_leave() {
         use_sandbox: false,
         permission_mode: String::new(),
         allowed_tools: vec![],
+        backfill_limit: 500,
+        max_sessions: 100,
     };
 
     let state = remora_server::state::AppState::new(db.clone(), "test-token".to_string(), config);
@@ -87,6 +89,8 @@ async fn state_subscribe_receives_dispatched_events() {
         use_sandbox: false,
         permission_mode: String::new(),
         allowed_tools: vec![],
+        backfill_limit: 500,
+        max_sessions: 100,
     };
 
     let state = std::sync::Arc::new(remora_server::state::AppState::new(
@@ -96,7 +100,7 @@ async fn state_subscribe_receives_dispatched_events() {
     ));
 
     // Subscribe to the session
-    let (mut rx, _cancel) = state.subscribe(sid).await;
+    let (mut rx, _cancel) = state.subscribe(sid, "tester").await;
 
     // Construct an event and dispatch it directly through AppState
     let event = remora_common::Event {

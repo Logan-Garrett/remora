@@ -326,49 +326,46 @@ async fn cmd_kick_disconnects_target() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
-async fn cmd_repo_add_clones_repo() {
-    // Create a temp bare git repo that can be cloned
-    let tmp = tempfile::tempdir().expect("failed to create temp dir");
-    let repo_path = tmp.path().join("test-repo.git");
-    let status = std::process::Command::new("git")
-        .args(["init", "--bare", repo_path.to_str().unwrap()])
-        .output()
-        .expect("git init failed");
-    assert!(status.status.success(), "git init --bare should succeed");
-
+async fn cmd_repo_add_rejects_file_url() {
+    // Verify that file:// URLs are rejected (SSRF prevention)
     let server = TestServer::start().await;
-    let session_id = server.create_session("repo-add-test").await;
+    let session_id = server.create_session("repo-add-ssrf-test").await;
 
     let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
     let _ = TestServer::drain_events(&mut stream, 1500).await;
 
-    let git_url = format!("file://{}", repo_path.display());
     TestServer::send_msg(
         &mut sink,
-        serde_json::json!({"type": "repo_add", "author": "alice", "git_url": git_url}),
+        serde_json::json!({"type": "repo_add", "author": "alice", "git_url": "file:///tmp/evil-repo"}),
     )
     .await;
 
+    // Should receive a system error event about the rejected URL, not a repo_change
     let ev = TestServer::wait_for_event_matching(
         &mut stream,
         |ev| {
             ev["type"] == "event"
-                && ev
-                    .get("data")
-                    .is_some_and(|d| d["kind"] == "repo_change" && d["payload"]["action"] == "add")
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "system"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("Rejected git URL")
+                })
         },
-        10000,
+        5000,
     )
     .await;
 
-    assert!(ev.is_some(), "should receive a repo_change add event");
-    let data = ev.unwrap();
-    assert_eq!(data["data"]["payload"]["name"], "test-repo");
+    assert!(
+        ev.is_some(),
+        "should receive rejection message for file:// URL"
+    );
 
-    // Verify the repo was registered in DB
+    // Verify no repo was registered in DB
     let db = server.db();
     let names = db.list_repo_names(session_id).await.unwrap();
-    assert!(names.contains(&"test-repo".to_string()));
+    assert!(names.is_empty(), "no repos should be registered");
 }
 
 // ── /repo_remove ───────────────────────────────────────────────────
@@ -376,40 +373,23 @@ async fn cmd_repo_add_clones_repo() {
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
 async fn cmd_repo_remove_deletes() {
-    // Create a temp bare git repo
-    let tmp = tempfile::tempdir().expect("failed to create temp dir");
-    let repo_path = tmp.path().join("removeme.git");
-    let status = std::process::Command::new("git")
-        .args(["init", "--bare", repo_path.to_str().unwrap()])
-        .output()
-        .expect("git init failed");
-    assert!(status.status.success(), "git init --bare should succeed");
-
     let server = TestServer::start().await;
     let session_id = server.create_session("repo-rm-test").await;
 
+    // Set up repo directly via DB and filesystem (bypassing git clone)
+    let db = server.db();
+    db.upsert_repo(session_id, "removeme", "https://example.com/removeme.git")
+        .await
+        .unwrap();
+    let repo_dir = server
+        .workspace_dir()
+        .join(session_id.to_string())
+        .join("removeme");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    std::fs::write(repo_dir.join("test.txt"), "content").unwrap();
+
     let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
     let _ = TestServer::drain_events(&mut stream, 1500).await;
-
-    // First add the repo
-    let git_url = format!("file://{}", repo_path.display());
-    TestServer::send_msg(
-        &mut sink,
-        serde_json::json!({"type": "repo_add", "author": "alice", "git_url": git_url}),
-    )
-    .await;
-
-    let _ = TestServer::wait_for_event_matching(
-        &mut stream,
-        |ev| {
-            ev["type"] == "event"
-                && ev
-                    .get("data")
-                    .is_some_and(|d| d["kind"] == "repo_change" && d["payload"]["action"] == "add")
-        },
-        10000,
-    )
-    .await;
 
     // Now remove it
     TestServer::send_msg(
@@ -448,22 +428,29 @@ async fn cmd_repo_remove_deletes() {
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
 async fn cmd_diff_with_repo() {
-    // Create a temp git repo with a commit and then modify a file
-    let tmp = tempfile::tempdir().expect("failed to create temp dir");
-    let repo_path = tmp.path().join("diffrepo");
+    let server = TestServer::start().await;
+    let session_id = server.create_session("diff-test").await;
 
-    // Init, add a file, commit
+    // Set up a git repo directly in the workspace (bypassing /repo_add)
+    let repo_dir = server
+        .workspace_dir()
+        .join(session_id.to_string())
+        .join("diffrepo");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+
+    // Init git repo, add a file, commit
     let init = std::process::Command::new("git")
-        .args(["init", repo_path.to_str().unwrap()])
+        .args(["init"])
+        .current_dir(&repo_dir)
         .output()
         .unwrap();
     assert!(init.status.success());
 
-    std::fs::write(repo_path.join("hello.txt"), "original").unwrap();
+    std::fs::write(repo_dir.join("hello.txt"), "original").unwrap();
 
     let _ = std::process::Command::new("git")
         .args(["add", "."])
-        .current_dir(&repo_path)
+        .current_dir(&repo_dir)
         .output()
         .unwrap();
     let _ = std::process::Command::new("git")
@@ -476,45 +463,21 @@ async fn cmd_diff_with_repo() {
             "-m",
             "init",
         ])
-        .current_dir(&repo_path)
+        .current_dir(&repo_dir)
         .output()
         .unwrap();
 
-    let server = TestServer::start().await;
-    let session_id = server.create_session("diff-test").await;
+    // Register the repo in DB directly
+    let db = server.db();
+    db.upsert_repo(session_id, "diffrepo", "https://example.com/diffrepo.git")
+        .await
+        .unwrap();
 
     let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
     let _ = TestServer::drain_events(&mut stream, 1500).await;
 
-    // Add the repo
-    let git_url = format!("file://{}", repo_path.display());
-    TestServer::send_msg(
-        &mut sink,
-        serde_json::json!({"type": "repo_add", "author": "alice", "git_url": git_url}),
-    )
-    .await;
-
-    let _ = TestServer::wait_for_event_matching(
-        &mut stream,
-        |ev| {
-            ev["type"] == "event"
-                && ev
-                    .get("data")
-                    .is_some_and(|d| d["kind"] == "repo_change" && d["payload"]["action"] == "add")
-        },
-        10000,
-    )
-    .await;
-
-    // Modify the file in the cloned workspace.
-    // The server clones repos into workspace_dir/session_id/repo_name.
-    let cloned_hello = server
-        .workspace_dir()
-        .join(session_id.to_string())
-        .join("diffrepo")
-        .join("hello.txt");
-    assert!(cloned_hello.exists(), "cloned file should exist");
-    std::fs::write(&cloned_hello, "modified content").unwrap();
+    // Modify the file
+    std::fs::write(repo_dir.join("hello.txt"), "modified content").unwrap();
 
     // Now run /diff
     TestServer::send_msg(

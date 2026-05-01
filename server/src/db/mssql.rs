@@ -303,6 +303,25 @@ impl Database for MssqlDb {
         Ok(count > 0)
     }
 
+    async fn count_sessions(&self) -> anyhow::Result<i64> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query("SELECT COUNT(*) FROM sessions", &[])
+            .await?
+            .into_first_result()
+            .await?;
+        let count = rows
+            .first()
+            .and_then(|r| r.try_get::<i64, _>(0).ok().flatten())
+            .or_else(|| {
+                rows.first()
+                    .and_then(|r| r.try_get::<i32, _>(0).ok().flatten())
+                    .map(|v| v as i64)
+            })
+            .unwrap_or(0);
+        Ok(count)
+    }
+
     async fn get_session_info(
         &self,
         session_id: Uuid,
@@ -429,6 +448,46 @@ impl Database for MssqlDb {
                 "SELECT id, session_id, [timestamp], author, kind, payload \
                  FROM events WHERE session_id = @P1 ORDER BY id",
                 &[&tib_id],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_i64(row, 0)?;
+            let sid = col_uuid(row, 1)?;
+            let timestamp = col_datetime(row, 2)?;
+            let author = col_str_opt(row, 3)?;
+            let kind = col_str(row, 4)?;
+            let payload_str = col_str(row, 5)?;
+            let payload: Value = serde_json::from_str(&payload_str)?;
+            result.push(Event {
+                id,
+                session_id: sid,
+                timestamp,
+                author,
+                kind,
+                payload,
+            });
+        }
+        Ok(result)
+    }
+
+    async fn get_recent_events_for_session(
+        &self,
+        session_id: Uuid,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Event>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT id, session_id, [timestamp], author, kind, payload \
+                 FROM (SELECT TOP (@P2) id, session_id, [timestamp], author, kind, payload \
+                       FROM events WHERE session_id = @P1 ORDER BY id DESC) sub \
+                 ORDER BY id",
+                &[&tib_id, &limit],
             )
             .await?
             .into_first_result()

@@ -112,6 +112,8 @@ For **SQLite**, set `REMORA_DB_PROVIDER=sqlite` and `DATABASE_URL=sqlite:remora.
 | `REMORA_SKIP_PERMISSIONS` | `true` | Pass `--dangerously-skip-permissions` to Claude |
 | `REMORA_USE_SANDBOX` | `false` | Run Claude inside a Docker container per session |
 | `REMORA_DOCKER_IMAGE` | `ubuntu:22.04` | Docker image for sandbox containers |
+| `REMORA_BACKFILL_LIMIT` | `500` | Max events sent to a client on WebSocket connect |
+| `REMORA_MAX_SESSIONS` | `100` | Max concurrent sessions (returns 429 when reached) |
 
 ### 2. Client (Neovim)
 
@@ -229,6 +231,13 @@ All endpoints require `Authorization: Bearer <token>` header (or `token` query p
 | Postgres | `postgres` | LISTEN/NOTIFY | Recommended for multi-instance deployments |
 | SQLite | `sqlite` | In-process broadcast | Single instance only, great for local dev |
 | MSSQL | `mssql` | In-process broadcast | Requires `--features mssql` at build time |
+
+## Security
+
+### Known limitations
+
+- **WebSocket token in query string**: The team token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
+- **Session-scoped authorization**: Currently, knowing the team token grants access to all sessions. Per-session tokens are not yet implemented. Treat the team token as a shared secret for your team.
 
 ## Contributing
 

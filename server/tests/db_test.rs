@@ -494,6 +494,8 @@ async fn db_participant_tracking() {
         use_sandbox: false,
         permission_mode: String::new(),
         allowed_tools: vec![],
+        backfill_limit: 500,
+        max_sessions: 100,
     };
 
     let state = remora_server::state::AppState::new(db.clone(), "test-token".to_string(), config);
@@ -552,6 +554,8 @@ async fn db_subscribe_and_dispatch() {
         use_sandbox: false,
         permission_mode: String::new(),
         allowed_tools: vec![],
+        backfill_limit: 500,
+        max_sessions: 100,
     };
 
     let state = std::sync::Arc::new(remora_server::state::AppState::new(
@@ -569,7 +573,7 @@ async fn db_subscribe_and_dispatch() {
     // Give the listener time to subscribe to DB notifications
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    let (mut rx, _cancel) = state.subscribe(sid).await;
+    let (mut rx, _cancel) = state.subscribe(sid, "tester").await;
 
     // Insert an event into the DB (this triggers the notification channel)
     let event_id = db

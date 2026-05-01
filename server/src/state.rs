@@ -22,6 +22,8 @@ pub struct Config {
     pub use_sandbox: bool,
     pub permission_mode: String,
     pub allowed_tools: Vec<String>,
+    pub backfill_limit: i64,
+    pub max_sessions: usize,
 }
 
 impl Config {
@@ -62,15 +64,23 @@ impl Config {
                         .collect()
                 })
                 .unwrap_or_default(),
+            backfill_limit: std::env::var("REMORA_BACKFILL_LIMIT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(500),
+            max_sessions: std::env::var("REMORA_MAX_SESSIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100),
         }
     }
 }
 
 /// Per-connection info: sender channel + cancel token for kick.
-#[allow(dead_code)]
 pub struct ConnectionInfo {
     pub tx: EventTx,
     pub cancel: CancellationToken,
+    pub name: String,
 }
 
 pub struct AppState {
@@ -97,12 +107,14 @@ impl AppState {
     pub async fn subscribe(
         &self,
         session_id: Uuid,
+        name: &str,
     ) -> (mpsc::UnboundedReceiver<Event>, CancellationToken) {
         let (tx, rx) = mpsc::unbounded_channel();
         let cancel = CancellationToken::new();
         let info = ConnectionInfo {
             tx,
             cancel: cancel.clone(),
+            name: name.to_string(),
         };
         let mut subs = self.subscribers.write().await;
         subs.entry(session_id).or_default().push(info);
@@ -160,24 +172,39 @@ impl AppState {
     }
 
     /// Kick all connections for a named participant in a session.
+    ///
+    /// The WS handler's send loop already detects kick events and disconnects
+    /// the targeted client after forwarding the event. This method acts as a
+    /// delayed fallback: it collects the cancel tokens for the target, then
+    /// spawns a task that waits briefly before cancelling them, giving the
+    /// notification pipeline time to deliver the kick event first.
     pub async fn kick_participant(&self, session_id: Uuid, target: &str) {
-        // Cancel their connections
-        let subs = self.subscribers.read().await;
-        if let Some(list) = subs.get(&session_id) {
-            for info in list.iter() {
-                let _ = info;
-            }
-        }
-        drop(subs);
+        // Collect cancel tokens for the target's connections
+        let tokens: Vec<CancellationToken> = {
+            let subs = self.subscribers.read().await;
+            subs.get(&session_id)
+                .map(|list| {
+                    list.iter()
+                        .filter(|info| info.name == target)
+                        .map(|info| info.cancel.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
 
-        // Remove from participants
+        // Remove from participants immediately
         self.participant_leave(session_id, target).await;
-    }
 
-    /// Cancel connections for a participant by name.
-    #[allow(dead_code)]
-    pub async fn kick_connections(&self, session_id: Uuid, target_name: &str) {
-        let _ = (session_id, target_name);
+        // Spawn a delayed cancel so the kick event has time to be delivered
+        // through the notification pipeline before we forcibly close the connection.
+        if !tokens.is_empty() {
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                for token in tokens {
+                    token.cancel();
+                }
+            });
+        }
     }
 }
 

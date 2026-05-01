@@ -14,12 +14,14 @@ use tokio::net::TcpListener;
 pub const TEST_TOKEN: &str = "test-token-abc123";
 
 /// A running instance of the remora server bound to a random port.
+#[allow(dead_code)]
 pub struct TestServer {
     pub addr: SocketAddr,
     pub db: Arc<DatabaseBackend>,
     _workspace_dir: tempfile::TempDir,
 }
 
+#[allow(dead_code)]
 impl TestServer {
     /// Spin up a fresh server.
     ///
@@ -62,6 +64,8 @@ impl TestServer {
             use_sandbox: false,
             permission_mode: String::new(),
             allowed_tools: vec![],
+            backfill_limit: 500,
+            max_sessions: 100,
         };
 
         let state = AppState::new(db_arc.clone(), TEST_TOKEN.to_string(), config);
@@ -206,11 +210,8 @@ impl TestServer {
         timeout_ms: u64,
     ) -> Vec<serde_json::Value> {
         let mut events = Vec::new();
-        loop {
-            match Self::wait_for_event(stream, timeout_ms).await {
-                Some(ev) => events.push(ev),
-                None => break,
-            }
+        while let Some(ev) = Self::wait_for_event(stream, timeout_ms).await {
+            events.push(ev);
         }
         events
     }
