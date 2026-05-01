@@ -35,7 +35,7 @@ async function createAndJoinSession(page: Page, desc: string): Promise<void> {
 }
 
 async function sendCommand(page: Page, command: string): Promise<void> {
-  const input = page.locator(".chat-input input");
+  const input = page.locator(".chat-input-bar input");
   await input.fill(command);
   await input.press("Enter");
 }
