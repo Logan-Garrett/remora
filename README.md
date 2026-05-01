@@ -9,6 +9,8 @@
 
 Collaborative Claude Code sessions. Multiple devs share a single session with a shared, append-only event log. Chat freely, add context, and invoke Claude together.
 
+**[Try the hosted web client →](https://remora.configurationproxy.com)** — point it at any Remora server you run.
+
 ## Screenshots
 
 ### Web Client — Login
