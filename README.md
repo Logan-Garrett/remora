@@ -263,21 +263,19 @@ All endpoints require `Authorization: Bearer <token>` header (or `token` query p
 
 ## Roadmap
 
-Things planned or likely to happen:
+See [ROADMAP.md](ROADMAP.md) for the full plan. Short version:
 
-- **Per-session tokens** -- each session gets its own invite token so you can share a single session with someone without giving them access to everything on the server. The current single team token is all-or-nothing.
-- **User dashboard** -- a web page that shows all sessions a user has access to, lets them create new ones, and tracks usage. Useful when one server hosts sessions for multiple people or teams.
-- **Multi-team support** -- namespace sessions by team so different groups on the same server are isolated from each other without running separate instances.
+- **Per-session tokens** — scoped invite tokens so sharing one session doesn't grant server-wide access
+- **User accounts + OAuth / SSO** — replace the shared team token with real identity
+- **Multi-tenancy** — team namespacing so multiple groups can share one server
+- **MySQL / MariaDB** — fourth database backend
+- **Admin dashboard** — surface the token usage, run analytics, and allowlists already tracked in the DB
+- **Desktop app** — native Tauri wrapper with menu-bar presence and notifications
+- **VS Code / JetBrains plugins** — bring the Neovim plugin experience to other editors
 
 ## Contributing
 
-PRs are welcome. Some areas that could use help:
-
-- **Better streaming** -- token-level streaming instead of per-turn
-- **IDE plugins** -- VS Code, JetBrains, or other editors
-- **OAuth/JWT auth** -- replace the shared team token with proper user accounts
-- **Session persistence** -- export workspace state, push branches before cleanup
-- **Network proxy** -- egress proxy for sandbox containers to enforce fetch allowlists
+PRs are welcome. See [ROADMAP.md](ROADMAP.md) for areas that need help.
 
 Fork, branch, PR. No special process -- just keep it clean and explain what you changed.
 
