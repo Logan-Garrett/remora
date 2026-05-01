@@ -211,6 +211,26 @@ jobs:
       - name: Run audit
         run: cargo audit --ignore RUSTSEC-2023-0071
 
+  web-audit:
+    name: Web dependency audit & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+      - name: npm audit (no high/critical)
+        working-directory: web
+        run: npm audit --audit-level=high
+      - name: TypeScript type-check
+        working-directory: web
+        run: npx tsc --noEmit
+
   e2e-web:
     name: Web E2E (Playwright)
     runs-on: ubuntu-latest
