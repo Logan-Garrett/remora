@@ -1,5 +1,12 @@
 # Remora
 
+[![CI](https://github.com/Logan-Garrett/remora/actions/workflows/ci.yml/badge.svg)](https://github.com/Logan-Garrett/remora/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Postgres](https://img.shields.io/badge/db-postgres-336791.svg)](#database-support)
+[![SQLite](https://img.shields.io/badge/db-sqlite-003B57.svg)](#database-support)
+[![MSSQL](https://img.shields.io/badge/db-mssql-CC2927.svg)](#database-support)
+
 Collaborative Claude Code sessions. Multiple devs share a single session with a shared, append-only event log. Chat freely, add context, and invoke Claude together.
 
 ## Screenshots
