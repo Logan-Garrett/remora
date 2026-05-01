@@ -35,9 +35,27 @@ Browse, create, and manage sessions. Click to join, or create a new one with opt
 ![Web Sessions](docs/images/web_sessions.png)
 
 ### Web Client — Chat
-Real-time event log. Chat with your team, run Claude, and see tool calls and responses as they happen.
+Real-time event log. Chat with your team, run Claude, and see tool calls and responses as they happen. Session creators see an **Owner Key** button to copy their ownership credential.
 
 ![Web Chat](docs/images/web_chat.png)
+
+### Trust & Ownership
+Use `/trust <name>` to mark participants as trusted. Their messages reach Claude as instructions instead of being wrapped in `<untrusted_content>`. Use `/who` to see the owner and trusted list.
+
+![Trust Command](docs/images/web_chat_trust.png)
+
+![Who with Trusted List](docs/images/web_chat_who.png)
+
+### Mobile (iPhone Safari)
+The web client is fully responsive. All features including Owner Key and trust commands work on mobile.
+
+![Mobile Chat](docs/images/mobile_chat.png)
+![Mobile Trust](docs/images/mobile_chat_trust.png)
+
+### Neovim — Trust & Ownership
+Owner key is displayed on session creation and available via `:RemoraOwnerKey`. Use `/trust` and `/untrust` in the chat buffer. Join with an owner key via `:RemoraJoin <url> <session_id> <token> [name] [owner_key]`.
+
+![Neovim Trust](docs/images/neovim_trust.svg)
 
 ### Neovim — Session Picker (`<space>ms`)
 Browse and join sessions with Telescope.

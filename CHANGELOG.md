@@ -10,6 +10,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ---
 
+## [0.9.2] — 2026-05-01
+
+### Added
+- **Owner key entry UX** — web UI shows "Enter Owner Key" button for sessions where the key isn't stored locally; Neovim `:RemoraJoin` accepts optional 5th argument for owner_key
+- **TOCTOU fix** — duplicate name check and participant join are now atomic (single write lock)
+- **Session owner cleanup** — owner entry is cleared from AppState when all participants leave and when a session is deleted
+- **Updated screenshots** — new desktop, mobile (iPhone 15 Pro), and Neovim mockup images showing trust features, Owner Key button, /who with trusted list
+
+### Changed
+- Versions bumped from 0.9.0 to 0.9.2 (server, bridge, common, web)
+- Owner key prevents first-joiner fallback: if a session has an owner_key in the DB, only the key holder can be owner
+
+---
+
 ## [0.9.0] — 2026-05-01
 
 ### Added

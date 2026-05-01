@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" font-family="JetBrains Mono, Menlo, monospace" font-size="13">
+  <defs>
+    <style>
+      .bg { fill: #1a1b26; }
+      .border { stroke: #3b4261; stroke-width: 1; fill: none; }
+      .title-bg { fill: #24283b; }
+      .text { fill: #a9b1d6; }
+      .system { fill: #7aa2f7; font-style: italic; }
+      .trusted { fill: #9ece6a; }
+      .owner { fill: #e0af68; }
+      .cmd { fill: #bb9af7; }
+      .divider { stroke: #3b4261; stroke-width: 1; }
+      .statusline { fill: #1f2335; }
+      .statustext { fill: #7aa2f7; font-size: 12; }
+      .label { fill: #565f89; font-size: 11; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect class="bg" width="800" height="500" rx="8"/>
+  <rect class="border" x="0" y="0" width="800" height="500" rx="8"/>
+
+  <!-- Title bar -->
+  <rect class="title-bg" x="1" y="1" width="798" height="24" rx="8"/>
+  <text class="label" x="10" y="17">remora://session/39812c45 [Logan]</text>
+  <text class="label" x="600" y="17">:RemoraOwnerKey  :RemoraLeave</text>
+
+  <!-- Chat log area -->
+  <text class="system" x="20" y="55">-- connecting to 39812c45 --</text>
+  <text class="system" x="20" y="75">-- connected --</text>
+  <text class="system" x="20" y="95">-- session created: 39812c45 --</text>
+  <text class="owner" x="20" y="115">-- owner key: a1b2c3d4-e5f6-7890-abcd-ef1234567890 --</text>
+  <text class="label" x="20" y="135">-- (use :RemoraOwnerKey to show again) --</text>
+
+  <line class="divider" x1="20" y1="150" x2="780" y2="150"/>
+
+  <text class="system" x="20" y="175">Logan joined</text>
+  <text class="text" x="20" y="200"><tspan class="cmd">Logan</tspan> <tspan class="text">10:31 PM</tspan></text>
+  <text class="text" x="20" y="220">/trust BobTheBuilder</text>
+
+  <text class="trusted" x="20" y="250">BobTheBuilder is now trusted — their messages will</text>
+  <text class="trusted" x="20" y="268">be treated as instructions to Claude.</text>
+
+  <text class="system" x="20" y="298">BobTheBuilder joined</text>
+
+  <text class="text" x="20" y="325"><tspan class="cmd">Logan</tspan> <tspan class="text">10:32 PM</tspan></text>
+  <text class="text" x="20" y="345">/who</text>
+
+  <text class="system" x="20" y="375">Connected: Logan, BobTheBuilder</text>
+  <text class="owner" x="20" y="395">Owner: Logan</text>
+  <text class="trusted" x="20" y="415">Trusted: BobTheBuilder</text>
+
+  <!-- Divider before input -->
+  <line class="divider" x1="0" y1="440" x2="800" y2="440"/>
+
+  <!-- Input area -->
+  <text class="label" x="20" y="460">:RemoraSend /trust alice</text>
+  <rect x="15" y="445" width="770" height="25" rx="3" fill="none" stroke="#3b4261"/>
+
+  <!-- Status line -->
+  <rect class="statusline" x="1" y="475" width="798" height="24" rx="0"/>
+  <text class="statustext" x="10" y="491">REMORA</text>
+  <text class="statustext" x="100" y="491">39812c45</text>
+  <text class="statustext" x="250" y="491">Logan</text>
+  <text class="statustext" x="350" y="491">Connected</text>
+  <text class="statustext" x="600" y="491">:RemoraOwnerKey → clipboard</text>
+</svg>
