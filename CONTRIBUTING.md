@@ -62,7 +62,14 @@ remora/
 │   ├── postgres/    SQL migrations for Postgres
 │   ├── sqlite/      SQL migrations for SQLite
 │   └── mssql/       SQL migrations for MSSQL
-└── scripts/         Setup and deployment helpers
+├── docs/            Architecture and deep-dive documentation
+├── scripts/         Setup and deployment helpers
+├── .github/         CI workflows, issue templates, PR template
+├── README.md        User-facing docs
+├── ROADMAP.md       Planned features
+├── CONTRIBUTING.md  This file
+├── CHANGELOG.md     Version history
+└── CLAUDE.md        AI assistant context file
 ```
 
 ## How to Contribute

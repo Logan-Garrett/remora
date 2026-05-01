@@ -55,7 +55,7 @@ remora/
 │       ├── login.spec.ts
 │       ├── sessions.spec.ts
 │       ├── chat.spec.ts
-│       └── mobile.spec.ts   Mobile viewport tests (Pixel 5 + iPhone 12)
+│       └── mobile.spec.ts   Mobile viewport tests (iPhone 12, iPhone 15 Pro, iPhone 15 Pro Max, Pixel 5, Pixel 7, Galaxy S24)
 │
 ├── migrations/
 │   ├── postgres/        SQL migrations run by sqlx::migrate!
@@ -65,9 +65,21 @@ remora/
 ├── scripts/
 │   └── setup.sh         Interactive first-run setup (DB selection, token gen, build, print config)
 │
+├── docs/
+│   └── architecture.md  Deep-dive architecture with Mermaid diagrams (DB schema, /run sequence, state machines)
+│
+├── .github/
+│   ├── workflows/
+│   │   └── ci.yml       GitHub Actions CI pipeline
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md
+│   │   └── feature_request.md
+│   └── pull_request_template.md
+│
 ├── README.md            User-facing docs
 ├── ROADMAP.md           Planned features — read before adding something new
 ├── CONTRIBUTING.md      How to contribute, project layout, test guidelines
+├── CHANGELOG.md         Version history (Keep a Changelog format)
 └── CLAUDE.md            This file
 ```
 
@@ -206,7 +218,7 @@ Test files and what they cover:
 - `login.spec.ts` — health gate, form validation, auth rejection, successful login
 - `sessions.spec.ts` — create, delete, leave, rejoin sessions
 - `chat.spec.ts` — send messages, /help, /who, WebSocket connected status
-- `mobile.spec.ts` — same flows on Pixel 5 + iPhone 12 viewports, no overflow
+- `mobile.spec.ts` — same flows on iPhone 12, iPhone 15 Pro, iPhone 15 Pro Max, Pixel 5, Pixel 7, Galaxy S24 viewports, no overflow
 
 ### Adding a New E2E Test
 
@@ -231,7 +243,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR:
 | `sandbox-e2e` | Docker sandbox container lifecycle |
 | `security-audit` | `cargo audit` |
 | `web-audit` | `npm audit --audit-level=high` + `tsc --noEmit` |
-| `e2e-web` | Playwright E2E (chromium + mobile-chrome + mobile-safari) |
+| `e2e-web` | Playwright E2E (chromium, iPhone 12, iPhone 15 Pro, iPhone 15 Pro Max, Pixel 5, Pixel 7, Galaxy S24) |
 | `build` | Release build |
 
 ---

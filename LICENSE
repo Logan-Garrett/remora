@@ -1,21 +1,56 @@
-MIT License
+Remora Source License
 
 Copyright (c) 2026 Logan Garrett
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, and create derivative works of the Software for the following
+purposes WITHOUT restriction:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+  - Personal use
+  - Internal business use (not distributed to third parties)
+  - Non-commercial open-source projects
+  - Educational or research purposes
+
+COMMERCIAL DISTRIBUTION RESTRICTION
+
+You may NOT distribute, sell, sublicense, or offer as a paid service any
+product or service that:
+
+  1. Is the Software itself (or a modified version of it), OR
+  2. Incorporates a substantial portion of the Software's source code, OR
+  3. Is directly derived from the Software's source code
+
+without prior written consent from the copyright holder AND a separate written
+revenue-sharing agreement.
+
+REVENUE SHARING
+
+If you distribute or commercialize the Software (or a derivative work) in
+violation of the above restriction, or under a written agreement with the
+copyright holder that permits commercial use, you agree that 10% (ten percent)
+of gross revenue directly attributable to the Software or derivative work is
+owed to the original copyright holder (Logan Garrett).
+
+This obligation survives termination of any license agreement.
+
+PATENT GRANT
+
+Subject to the terms of this license, each contributor hereby grants you a
+perpetual, worldwide, non-exclusive, royalty-free patent license to make, use,
+and import the Software for the permitted purposes above only.
+
+NO WARRANTY
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+CONTACT
+
+To request a commercial license or revenue-sharing arrangement, contact:
+Logan Garrett — https://github.com/Logan-Garrett

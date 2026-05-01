@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/Logan-Garrett/remora)](https://github.com/Logan-Garrett/remora/releases/latest)
 [![GitHub stars](https://img.shields.io/github/stars/Logan-Garrett/remora)](https://github.com/Logan-Garrett/remora/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/Logan-Garrett/remora)](https://github.com/Logan-Garrett/remora/issues)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Source Available](https://img.shields.io/badge/License-Source%20Available-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![Postgres](https://img.shields.io/badge/db-postgres-336791.svg)](#database-support)
 [![SQLite](https://img.shields.io/badge/db-sqlite-003B57.svg)](#database-support)
@@ -314,4 +314,4 @@ Fork, branch, PR. No special process -- just keep it clean and explain what you 
 
 ## License
 
-MIT
+Source Available — free for personal, internal, and non-commercial open-source use. Commercial distribution or use in a paid product requires a written agreement with the copyright holder. See [LICENSE](LICENSE) for full terms.

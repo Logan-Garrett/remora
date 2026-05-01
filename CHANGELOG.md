@@ -16,11 +16,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 - `CLAUDE.md` — full project context, architecture, and contribution guide for AI-assisted development
 - `ROADMAP.md` — phased feature roadmap
 - `CONTRIBUTING.md` — contributor guide and community health file
-- `docs/architecture.md` — deep-dive architecture with Mermaid diagrams
-- GitHub issue and PR templates
+- `CHANGELOG.md` — this file; version history in Keep a Changelog format
+- `docs/architecture.md` — deep-dive architecture with Mermaid diagrams (DB schema, `/run` sequence, state machines, multi-instance)
+- GitHub issue templates (bug report, feature request) and PR template
 - DB performance indexes: `session_repos`, `session_runs`, `pending_approvals` (session_id), `sessions` (tokens_reset_date)
 - `start.sh` / `stop.sh` deployment scripts
-- CI path filtering — skips pipeline for doc-only changes
+- CI path filtering — skips pipeline for doc-only changes (`**.md`, `docs/**`, `assets/**`, `LICENSE`)
+- README: "Why Remora?" section (fish metaphor), hosted client link, latest release / stars / issues badges, architecture doc link
+- Web client documented as server-agnostic — one deployed copy connects to any Remora server URL
+- License changed from MIT to custom Source Available license — free for personal/internal/non-commercial use; commercial distribution requires a written revenue-sharing agreement
 
 ### Fixed
 - CI: server crashed on start in E2E job due to missing `REMORA_WORKSPACE_DIR` (defaulted to `/var/lib/remora/workspaces`, permission denied)
