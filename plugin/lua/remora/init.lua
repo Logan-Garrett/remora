@@ -16,6 +16,7 @@ local state = {
   reconnect_attempts = 0,
   max_reconnect_attempts = 3,
   reconnect_timer = nil,
+  intentional_leave = false, -- set true during leave() to suppress auto-reconnect
   scroll_follow = true, -- auto-scroll to bottom; false when user scrolls up
 }
 
@@ -458,7 +459,12 @@ local function on_bridge_exit(_, code, _)
   state.connected = false
   state.bridge_job = nil
   append_log("-- disconnected (exit " .. tostring(code) .. ") --", "RemoraSystem")
-  -- Auto-reconnect on unexpected exit
+  -- Only auto-reconnect on unexpected exit, not intentional leave
+  if state.intentional_leave then
+    state.intentional_leave = false
+    state.reconnect_attempts = 0
+    return
+  end
   if code ~= 0 then
     if state.reconnect_timer then
       vim.fn.timer_stop(state.reconnect_timer)
@@ -517,6 +523,15 @@ end
 
 --- Create a Telescope-style floating layout: bordered log + bordered prompt.
 local function create_layout()
+  -- Wipe stale buffers from a previous session to avoid "name already exists"
+  for _, buf in ipairs({ state.log_buf, state.prompt_buf }) do
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+  end
+  state.log_buf = nil
+  state.prompt_buf = nil
+
   local ui = vim.api.nvim_list_uis()[1] or {}
   local editor_w = ui.width or vim.o.columns
   local editor_h = ui.height or vim.o.lines
@@ -755,11 +770,22 @@ function M.leave()
     state.reconnect_timer = nil
   end
   state.reconnect_attempts = 0
+  state.intentional_leave = true
   if state.bridge_job then
     vim.fn.jobstop(state.bridge_job)
-    state.bridge_job = nil
+    -- bridge_job is cleared by on_bridge_exit callback
   end
   state.connected = false
+  -- Wipe buffers so rejoin can create fresh ones
+  for _, buf in ipairs({ state.log_buf, state.prompt_buf }) do
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+  end
+  state.log_buf = nil
+  state.prompt_buf = nil
+  state.log_win = nil
+  state.prompt_win = nil
 end
 
 --- List sessions from the server via REST (curl).

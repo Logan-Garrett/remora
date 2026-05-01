@@ -26,6 +26,7 @@ use remora_common::SessionInfo;
 use serde::Deserialize;
 use std::sync::Arc;
 use tower::limit::ConcurrencyLimitLayer;
+use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
 use state::AppState;
@@ -288,5 +289,6 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
         .route("/sessions/:id", get(ws_upgrade))
         .route("/sessions/:id", delete(delete_session))
         .layer(ConcurrencyLimitLayer::new(100))
+        .layer(CorsLayer::permissive())
         .with_state(shared)
 }
