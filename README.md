@@ -263,6 +263,8 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 | `/allowlist remove <domain>` | Remove a domain from allowlist |
 | `/approve <domain>` | Approve a pending fetch |
 | `/deny <domain>` | Deny a pending fetch |
+| `/trust <name>` | Mark a participant as trusted (owner only) |
+| `/untrust <name>` | Remove trust from a participant (owner only) |
 | `/kick <name>` | Remove a participant |
 | `/join <id>` | Switch to another session |
 | `/sessions` | List all sessions |

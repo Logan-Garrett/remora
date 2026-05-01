@@ -21,7 +21,7 @@ remora/
 │       ├── lib.rs       Router, auth, REST handlers (create/list/delete session, health)
 │       ├── ws.rs        WebSocket upgrade, per-connection send loop, ping keepalive
 │       ├── commands.rs  Dispatch ClientMsg variants to handlers (/run, /add, /fetch, etc.)
-│       ├── state.rs     AppState: in-memory subscribers/participants maps, Config from env
+│       ├── state.rs     AppState: in-memory subscribers/participants/session_owners maps, Config from env
 │       ├── quota.rs     Token usage tracking, idle session cleanup loop
 │       ├── sandbox.rs   Optional Docker-per-session isolation
 │       └── db/
@@ -134,7 +134,7 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 
 ### In-Memory State
 
-`AppState` holds two `RwLock<HashMap>` — `subscribers` (WebSocket sender channels) and `participants` (display names). These are **process-local**. Multiple server instances work with Postgres (LISTEN/NOTIFY crosses processes) but `/who` will only see participants on the same instance. SQLite and MSSQL are single-instance only.
+`AppState` holds three `RwLock<HashMap>` — `subscribers` (WebSocket sender channels), `participants` (display names), and `session_owners` (first participant to join each session, used for `/trust` authorization). These are **process-local**. Multiple server instances work with Postgres (LISTEN/NOTIFY crosses processes) but `/who` will only see participants on the same instance. SQLite and MSSQL are single-instance only. The `session_owners` map is cleared when all participants leave a session, so the next person to join becomes the new owner.
 
 ---
 
