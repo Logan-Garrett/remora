@@ -1,0 +1,14 @@
+[files]
+extend-exclude = [
+    "Cargo.lock",
+    "web/package-lock.json",
+    "*.svg",
+    "target/",
+    "web/node_modules/",
+    "web/dist/",
+]
+
+[default.extend-words]
+# Common false positives
+aci = "aci"
+nd = "nd"

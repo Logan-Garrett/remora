@@ -20,6 +20,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  typos:
+    name: Spell check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: crate-ci/typos@master
+
   rust-check:
     name: Rust lint & format
     runs-on: ubuntu-latest

@@ -145,6 +145,8 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 - **Migrations must be written for all three backends** (Postgres, SQLite, MSSQL) when the schema changes.
 - **`cargo fmt` and `cargo clippy -- -D warnings`** must pass before any push. Same for `tsc --noEmit` on the web client.
 - **Scan for secrets** in diffs before any push. Never commit tokens, passwords, or API keys.
+- **Display names are unique per session** (enforced at WS connect). A second connection with the same name is rejected with `ServerMsg::Error`.
+- **`/trust` and `/untrust` are restricted to the session owner** (first participant to join). Other participants receive a system error if they attempt these commands.
 
 ---
 
@@ -162,6 +164,10 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 | `REMORA_USE_SANDBOX` | `false` | Docker isolation per session |
 | `REMORA_RUN_TIMEOUT_SECS` | `600` | Max wall-clock time per Claude run |
 | `REMORA_IDLE_TIMEOUT_SECS` | `1800` | Seconds before idle session workspace is deleted and session marked `expired`. Set to a very large number to disable. |
+| `REMORA_GLOBAL_DAILY_CAP` | `10000000` | Global daily token limit across all sessions |
+| `REMORA_DOCKER_IMAGE` | `ubuntu:22.04` | Docker image for sandbox containers |
+| `REMORA_BACKFILL_LIMIT` | `500` | Max events sent to a client on WebSocket connect |
+| `REMORA_MAX_SESSIONS` | `100` | Max concurrent sessions (returns 429 when reached) |
 
 ---
 
@@ -276,6 +282,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR:
 
 | Job | What it checks |
 |---|---|
+| `typos` | Spell check (source code + docs) via [typos](https://github.com/crate-ci/typos) |
 | `rust-check` | `cargo fmt`, `cargo clippy`, `cargo check` |
 | `test-postgres` | Full test suite against Postgres 15 |
 | `test-sqlite` | Full test suite against SQLite |
@@ -287,6 +294,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR:
 | `e2e-web` | Playwright E2E (chromium, iPhone 12, iPhone 15 Pro, iPhone 15 Pro Max, Pixel 5, Pixel 7, Galaxy S24) |
 | `test-windows` | Windows: Rust lint, SQLite tests, MSSQL (native SQL Server Express), web build + audit |
 | `docker-compose-test` | `scripts/compose-test.sh` — builds image, starts stack, checks health + auth + CRUD |
+| `coverage` | Test coverage (cargo-llvm-cov with SQLite) → Codecov |
 | `build` | Release build |
 
 `.github/workflows/release.yml` fires on `v*` tags and publishes binaries + web client to GitHub Releases:
