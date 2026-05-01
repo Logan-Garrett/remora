@@ -1,0 +1,1 @@
+ALTER TABLE sessions ADD status NVARCHAR(50) NOT NULL DEFAULT 'active';

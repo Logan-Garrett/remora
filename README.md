@@ -90,7 +90,7 @@ How a `/run` flows through the system — from chat to Claude's response, broadc
 - **One run at a time**: Only one Claude run per session. Additional `/run` requests are queued/rejected while one is in flight.
 - **Max turns**: Claude runs are capped at 5 agentic turns per invocation (hardcoded).
 - **Fetch limits**: `/fetch` truncates responses at 100KB.
-- **Idle cleanup**: Sessions idle longer than `REMORA_IDLE_TIMEOUT_SECS` have their workspace deleted. Event history is retained in the database.
+- **Idle cleanup**: Sessions idle longer than `REMORA_IDLE_TIMEOUT_SECS` have their workspace deleted and are marked `expired`. Event history is retained in the database. Clients connecting to an expired session receive a clear "This session was cleaned up due to inactivity" message. Set `REMORA_IDLE_TIMEOUT_SECS` to a large value (e.g. `999999999`) to effectively disable cleanup.
 
 ## Prerequisites
 

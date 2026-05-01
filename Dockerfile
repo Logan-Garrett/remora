@@ -27,9 +27,17 @@ RUN cargo build --release -p remora-server -p remora-bridge
 # ---- Runtime stage ----
 FROM debian:bookworm-slim
 
+# Install runtime deps + Node.js 20 (for Claude CLI)
+# Uses NodeSource — NOT the Debian split packages (which pull 400+ deps)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates curl git gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @anthropic-ai/claude-code \
+    && npm cache clean --force \
+    && apt-get purge -y gnupg \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /root/.npm
 
 RUN useradd -m -s /bin/bash remora \
     && mkdir -p /var/lib/remora/workspaces \
@@ -38,7 +46,8 @@ RUN useradd -m -s /bin/bash remora \
 COPY --from=builder /app/target/release/remora-server /usr/local/bin/remora-server
 COPY --from=builder /app/target/release/remora-bridge /usr/local/bin/remora-bridge
 
-# Claude auth directory — mount from host: -v $HOME/.claude:/home/remora/.claude:ro
+# Mount host Claude auth directory so the CLI can authenticate:
+#   -v $HOME/.claude:/home/remora/.claude:ro
 VOLUME ["/home/remora/.claude"]
 
 USER remora

@@ -77,6 +77,22 @@ impl Database for PostgresDb {
         Ok(exists)
     }
 
+    async fn get_session_status(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let status = sqlx::query_scalar::<_, String>("SELECT status FROM sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(status)
+    }
+
+    async fn set_session_expired(&self, session_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET status = 'expired' WHERE id = $1")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn count_sessions(&self) -> anyhow::Result<i64> {
         let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions")
             .fetch_one(&self.pool)

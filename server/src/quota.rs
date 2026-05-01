@@ -67,7 +67,8 @@ pub async fn check_idle_sessions(
             }
         }
 
-        // Clear idle_since so we don't repeatedly try
+        // Mark session as expired and clear idle_since so we don't repeatedly try
+        let _ = db.set_session_expired(session_id).await;
         let _ = db.clear_idle_since_for(session_id).await;
     }
 
