@@ -263,6 +263,8 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 | `/allowlist remove <domain>` | Remove a domain from allowlist |
 | `/approve <domain>` | Approve a pending fetch |
 | `/deny <domain>` | Deny a pending fetch |
+| `/trust <name>` | Mark a participant as trusted (owner only) |
+| `/untrust <name>` | Remove trust from a participant (owner only) |
 | `/kick <name>` | Remove a participant |
 | `/join <id>` | Switch to another session |
 | `/sessions` | List all sessions |
@@ -272,12 +274,14 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/sessions` | Create session `{description, repos: [url]}` |
+| `POST` | `/sessions` | Create session `{description, repos: [url]}` — response includes `owner_key` |
 | `GET` | `/sessions` | List sessions |
 | `DELETE` | `/sessions/:id` | Delete session + cleanup |
-| `GET` | `/sessions/:id` | WebSocket upgrade (query: `token`, `name`) |
+| `GET` | `/sessions/:id` | WebSocket upgrade (query: `token`, `name`, optional `owner_key`) |
 
 All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS).
+
+The `owner_key` returned by `POST /sessions` is a secret UUID that proves session ownership. Pass it as `owner_key=<key>` in the WebSocket query params to claim ownership (required for `/trust` and `/untrust` commands). Without it, the first participant to join becomes owner.
 
 ## Database Support
 
@@ -293,6 +297,10 @@ All endpoints require `Authorization: Bearer <token>` header (or `token` query p
 
 - **WebSocket token in query string**: The team token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
 - **Session-scoped authorization**: Currently, knowing the team token grants access to all sessions. Per-session tokens are not yet implemented. Treat the team token as a shared secret for your team.
+
+### Trust model
+
+By default, all chat messages are untrusted and wrapped in `<untrusted_content>` tags when sent to Claude. The session owner (the first participant to join) can run `/trust <name>` to mark a participant as trusted, allowing their messages to reach Claude as plain instructions. Display names are unique per session -- duplicate names are rejected at connect time. See [SECURITY.md](SECURITY.md) for details and known limitations.
 
 ## Roadmap
 

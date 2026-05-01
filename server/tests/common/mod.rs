@@ -109,6 +109,12 @@ impl TestServer {
 
     /// Create a session via the REST API. Returns the session id.
     pub async fn create_session(&self, description: &str) -> uuid::Uuid {
+        let (id, _) = self.create_session_with_key(description).await;
+        id
+    }
+
+    /// Create a session via the REST API. Returns (session_id, owner_key).
+    pub async fn create_session_with_key(&self, description: &str) -> (uuid::Uuid, String) {
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("{}/sessions", self.base_url()))
@@ -120,7 +126,11 @@ impl TestServer {
         assert_eq!(resp.status(), 201, "expected 201 Created");
         let body: serde_json::Value = resp.json().await.unwrap();
         let id_str = body["id"].as_str().expect("response missing id");
-        id_str.parse().expect("invalid uuid")
+        let owner_key = body["owner_key"]
+            .as_str()
+            .expect("response missing owner_key")
+            .to_string();
+        (id_str.parse().expect("invalid uuid"), owner_key)
     }
 
     /// Open a WebSocket connection to the given session.
@@ -148,6 +158,40 @@ impl TestServer {
             session_id,
             TEST_TOKEN,
             name,
+        );
+        let (ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("ws connect failed");
+        ws.split()
+    }
+
+    /// Open a WebSocket connection with an owner_key to the given session.
+    pub async fn connect_ws_with_owner_key(
+        &self,
+        session_id: uuid::Uuid,
+        name: &str,
+        owner_key: &str,
+    ) -> (
+        futures_util::stream::SplitSink<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+            tokio_tungstenite::tungstenite::Message,
+        >,
+        futures_util::stream::SplitStream<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        >,
+    ) {
+        use futures_util::StreamExt;
+        let url = format!(
+            "{}/sessions/{}?token={}&name={}&owner_key={}",
+            self.ws_base_url(),
+            session_id,
+            TEST_TOKEN,
+            name,
+            owner_key,
         );
         let (ws, _) = tokio_tungstenite::connect_async(&url)
             .await

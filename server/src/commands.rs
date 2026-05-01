@@ -53,6 +53,10 @@ pub async fn dispatch(
         ClientMsg::Kick { target, .. } => handle_kick(&state, session_id, author, &target).await,
         ClientMsg::SessionInfo { .. } => handle_session_info(&state, session_id, author).await,
         ClientMsg::Help { .. } => handle_help(&state, session_id, author).await,
+        ClientMsg::Trust { target, .. } => handle_trust(&state, session_id, author, &target).await,
+        ClientMsg::Untrust { target, .. } => {
+            handle_untrust(&state, session_id, author, &target).await
+        }
     };
 
     if let Err(e) = result {
@@ -563,11 +567,24 @@ async fn handle_approve(
 
 async fn handle_who(state: &AppState, session_id: Uuid, _author: &str) -> anyhow::Result<()> {
     let participants = state.get_participants(session_id).await;
-    let text = if participants.is_empty() {
+    let mut text = if participants.is_empty() {
         "No participants connected.".to_string()
     } else {
         format!("Connected: {}", participants.join(", "))
     };
+
+    if let Some(owner) = state.get_session_owner(session_id).await {
+        text.push_str(&format!("\nOwner: {owner}"));
+    }
+
+    let trusted = state
+        .db
+        .list_trusted_participants(session_id)
+        .await
+        .unwrap_or_default();
+    if !trusted.is_empty() {
+        text.push_str(&format!("\nTrusted: {}", trusted.join(", ")));
+    }
 
     insert_event(
         &state.db,
@@ -670,6 +687,8 @@ Commands:
   /approve <domain>  — Approve a pending fetch request
   /deny <domain>     — Deny a pending fetch request
   /kick <name>       — Disconnect a participant
+  /trust <name>      — Mark a participant as trusted (owner only)
+  /untrust <name>    — Remove a participant from the trusted list (owner only)
   /help              — Show this help";
 
     insert_event(
@@ -678,6 +697,70 @@ Commands:
         "system",
         "system",
         serde_json::json!({"text": help}),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn handle_trust(
+    state: &AppState,
+    session_id: Uuid,
+    author: &str,
+    target: &str,
+) -> anyhow::Result<()> {
+    // Only the session owner can trust participants
+    let owner = state.get_session_owner(session_id).await;
+    if owner.as_deref() != Some(author) {
+        insert_event(
+            &state.db,
+            session_id,
+            "system",
+            "system",
+            serde_json::json!({"text": "Only the session owner can trust/untrust participants."}),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    state.db.trust_participant(session_id, target).await?;
+    insert_event(
+        &state.db,
+        session_id,
+        "system",
+        "system",
+        serde_json::json!({"text": format!("{target} is now trusted — their messages will be treated as instructions to Claude.")}),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn handle_untrust(
+    state: &AppState,
+    session_id: Uuid,
+    author: &str,
+    target: &str,
+) -> anyhow::Result<()> {
+    // Only the session owner can untrust participants
+    let owner = state.get_session_owner(session_id).await;
+    if owner.as_deref() != Some(author) {
+        insert_event(
+            &state.db,
+            session_id,
+            "system",
+            "system",
+            serde_json::json!({"text": "Only the session owner can trust/untrust participants."}),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    state.db.untrust_participant(session_id, target).await?;
+    insert_event(
+        &state.db,
+        session_id,
+        "system",
+        "system",
+        serde_json::json!({"text": format!("{target} has been removed from the trusted list.")}),
     )
     .await?;
     Ok(())

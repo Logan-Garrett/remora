@@ -57,6 +57,10 @@ pub enum ClientMsg {
     SessionInfo { author: String },
     #[serde(rename = "help")]
     Help { author: String },
+    #[serde(rename = "trust")]
+    Trust { author: String, target: String },
+    #[serde(rename = "untrust")]
+    Untrust { author: String, target: String },
 }
 
 /// Messages the server sends to the client over WebSocket.
@@ -75,4 +79,7 @@ pub struct SessionInfo {
     pub id: Uuid,
     pub description: String,
     pub created_at: DateTime<Utc>,
+    /// Only included in the create-session response; `None` in list responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_key: Option<String>,
 }

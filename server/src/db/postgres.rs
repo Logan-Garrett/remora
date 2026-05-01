@@ -535,6 +535,60 @@ impl Database for PostgresDb {
         Ok(())
     }
 
+    // -- owner key --
+
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET owner_key = $1 WHERE id = $2")
+            .bind(key)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let row =
+            sqlx::query_scalar::<_, Option<String>>("SELECT owner_key FROM sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.flatten())
+    }
+
+    // -- trusted participants --
+
+    async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO session_trusted (session_id, participant_name) VALUES ($1, $2) \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(session_id)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn untrust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM session_trusted WHERE session_id = $1 AND participant_name = $2")
+            .bind(session_id)
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_trusted_participants(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            "SELECT participant_name FROM session_trusted \
+             WHERE session_id = $1 ORDER BY participant_name",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(n,)| n).collect())
+    }
+
     // -- notifications --
 
     async fn subscribe_notifications(&self) -> anyhow::Result<NotificationRx> {

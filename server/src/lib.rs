@@ -95,6 +95,13 @@ async fn create_session(
 
     match result {
         Ok((id, description, created_at)) => {
+            // Generate and persist the owner_key
+            let owner_key = Uuid::new_v4().to_string();
+            if let Err(e) = state.db.set_owner_key(id, &owner_key).await {
+                tracing::error!("failed to set owner_key for session {id}: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+            }
+
             // Create workspace directory for this session
             let session_dir = state.config.workspace_dir.join(id.to_string());
             if let Err(e) = tokio::fs::create_dir_all(&session_dir).await {
@@ -140,6 +147,7 @@ async fn create_session(
                 id,
                 description,
                 created_at,
+                owner_key: Some(owner_key),
             };
             (StatusCode::CREATED, Json(info)).into_response()
         }
@@ -171,6 +179,7 @@ async fn list_sessions(
                     id,
                     description,
                     created_at,
+                    owner_key: None,
                 })
                 .collect();
             Json(sessions).into_response()
@@ -203,6 +212,9 @@ async fn delete_session(
         let _ = tokio::fs::remove_dir_all(&session_dir).await;
     }
 
+    // Clean up in-memory ownership tracking
+    state.clear_session_owner(session_id).await;
+
     // Delete from DB (cascades to events, repos, runs, etc.)
     let result = state.db.delete_session(session_id).await;
 
@@ -227,6 +239,7 @@ async fn delete_session(
 struct WsQuery {
     token: String,
     name: Option<String>,
+    owner_key: Option<String>,
 }
 
 async fn ws_upgrade(
@@ -240,7 +253,8 @@ async fn ws_upgrade(
     }
 
     let name = query.name.unwrap_or_else(|| "anon".into());
-    ws.on_upgrade(move |socket| ws::handle_socket(state, session_id, name, socket))
+    let owner_key = query.owner_key;
+    ws.on_upgrade(move |socket| ws::handle_socket(state, session_id, name, owner_key, socket))
         .into_response()
 }
 

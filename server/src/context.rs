@@ -31,12 +31,18 @@ pub async fn assemble_context(
         ContextMode::SinceLast => db.get_last_context_boundary(session_id).await?,
     };
 
+    let trusted_vec = db
+        .list_trusted_participants(session_id)
+        .await
+        .unwrap_or_default();
+    let trusted: std::collections::HashSet<String> = trusted_vec.into_iter().collect();
+
     let rows = db.get_events_since(session_id, min_id).await?;
 
     let mut parts = Vec::new();
 
     for (_id, author, kind, payload) in rows {
-        let formatted = format_event(&author.unwrap_or_default(), &kind, &payload);
+        let formatted = format_event(&author.unwrap_or_default(), &kind, &payload, &trusted);
         if !formatted.is_empty() {
             parts.push(formatted);
         }
@@ -45,13 +51,22 @@ pub async fn assemble_context(
     Ok(parts.join("\n\n"))
 }
 
-fn format_event(author: &str, kind: &str, payload: &serde_json::Value) -> String {
+fn format_event(
+    author: &str,
+    kind: &str,
+    payload: &serde_json::Value,
+    trusted: &std::collections::HashSet<String>,
+) -> String {
     match kind {
         "chat" => {
             let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
-            format!(
-                "<untrusted_content source=\"chat\" author=\"{author}\">\n{text}\n</untrusted_content>"
-            )
+            if trusted.contains(author) {
+                format!("[{author} (trusted)]: {text}")
+            } else {
+                format!(
+                    "<untrusted_content source=\"chat\" author=\"{author}\">\n{text}\n</untrusted_content>"
+                )
+            }
         }
         "file" => {
             let path = payload

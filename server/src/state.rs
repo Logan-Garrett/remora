@@ -91,6 +91,8 @@ pub struct AppState {
     pub subscribers: RwLock<HashMap<Uuid, Vec<ConnectionInfo>>>,
     /// session_id -> set of connected participant names
     pub participants: RwLock<HashMap<Uuid, HashSet<String>>>,
+    /// session_id -> display name of the session owner (first participant to join)
+    pub session_owners: RwLock<HashMap<Uuid, String>>,
 }
 
 impl AppState {
@@ -101,6 +103,7 @@ impl AppState {
             config,
             subscribers: RwLock::new(HashMap::new()),
             participants: RwLock::new(HashMap::new()),
+            session_owners: RwLock::new(HashMap::new()),
         }
     }
 
@@ -140,12 +143,18 @@ impl AppState {
         }
     }
 
-    pub async fn participant_join(&self, session_id: Uuid, name: &str) {
+    /// Attempt to join a session. Returns `false` if the name is already taken.
+    /// This combines the uniqueness check and insertion under a single write lock
+    /// to prevent TOCTOU races between concurrent WebSocket handlers.
+    pub async fn try_participant_join(&self, session_id: Uuid, name: &str) -> bool {
         let mut parts = self.participants.write().await;
-        parts
-            .entry(session_id)
-            .or_default()
-            .insert(name.to_string());
+        let set = parts.entry(session_id).or_default();
+        if set.contains(name) {
+            false
+        } else {
+            set.insert(name.to_string());
+            true
+        }
     }
 
     pub async fn participant_leave(&self, session_id: Uuid, name: &str) {
@@ -154,8 +163,45 @@ impl AppState {
             set.remove(name);
             if set.is_empty() {
                 parts.remove(&session_id);
+                // Clear ownership when the last participant leaves so the next
+                // person to join becomes the new owner.
+                drop(parts); // release participants lock before acquiring owners lock
+                let mut owners = self.session_owners.write().await;
+                owners.remove(&session_id);
             }
         }
+    }
+
+    /// Set the session owner if one has not been set yet.
+    /// Returns `true` if the caller was set as owner, `false` if an owner already exists.
+    pub async fn set_session_owner(&self, session_id: Uuid, name: &str) -> bool {
+        use std::collections::hash_map::Entry;
+        let mut owners = self.session_owners.write().await;
+        if let Entry::Vacant(e) = owners.entry(session_id) {
+            e.insert(name.to_string());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Forcefully set the session owner, overwriting any existing owner.
+    /// Used when a valid owner_key is provided on WebSocket connect.
+    pub async fn force_set_session_owner(&self, session_id: Uuid, name: &str) {
+        let mut owners = self.session_owners.write().await;
+        owners.insert(session_id, name.to_string());
+    }
+
+    /// Get the session owner's display name, if set.
+    pub async fn get_session_owner(&self, session_id: Uuid) -> Option<String> {
+        let owners = self.session_owners.read().await;
+        owners.get(&session_id).cloned()
+    }
+
+    /// Remove the session owner entry (e.g. on session delete).
+    pub async fn clear_session_owner(&self, session_id: Uuid) {
+        let mut owners = self.session_owners.write().await;
+        owners.remove(&session_id);
     }
 
     pub async fn get_participants(&self, session_id: Uuid) -> Vec<String> {

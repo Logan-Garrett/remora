@@ -505,9 +505,9 @@ async fn db_participant_tracking() {
     assert!(parts.is_empty(), "should start with no participants");
 
     // Join three participants
-    state.participant_join(sid, "alice").await;
-    state.participant_join(sid, "bob").await;
-    state.participant_join(sid, "charlie").await;
+    state.try_participant_join(sid, "alice").await;
+    state.try_participant_join(sid, "bob").await;
+    state.try_participant_join(sid, "charlie").await;
 
     let parts = state.get_participants(sid).await;
     assert_eq!(parts.len(), 3);

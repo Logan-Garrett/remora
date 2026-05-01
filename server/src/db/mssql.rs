@@ -189,6 +189,14 @@ impl Database for MssqlDb {
                 "20260501000000_session_status.sql",
                 include_str!("../../../migrations/mssql/20260501000000_session_status.sql"),
             ),
+            (
+                "20260501000001_trusted_participants.sql",
+                include_str!("../../../migrations/mssql/20260501000001_trusted_participants.sql"),
+            ),
+            (
+                "20260501000002_owner_key.sql",
+                include_str!("../../../migrations/mssql/20260501000002_owner_key.sql"),
+            ),
         ];
 
         for (name, sql) in migration_files {
@@ -1040,6 +1048,82 @@ impl Database for MssqlDb {
         )
         .await?;
         Ok(())
+    }
+
+    // -- owner key --
+
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute(
+            "UPDATE sessions SET owner_key = @P1 WHERE id = @P2",
+            &[&key, &tib_id],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn
+            .query("SELECT owner_key FROM sessions WHERE id = @P1", &[&tib_id])
+            .await?
+            .into_first_result()
+            .await?;
+        let key = rows
+            .first()
+            .and_then(|r| r.try_get::<&str, _>(0).ok().flatten())
+            .map(|s| s.to_string());
+        Ok(key)
+    }
+
+    // -- trusted participants --
+
+    async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute(
+            "MERGE session_trusted AS t \
+             USING (SELECT @P1 AS session_id, @P2 AS participant_name) AS s \
+             ON t.session_id = s.session_id AND t.participant_name = s.participant_name \
+             WHEN NOT MATCHED THEN INSERT (session_id, participant_name) \
+             VALUES (s.session_id, s.participant_name);",
+            &[&tib_id, &name],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn untrust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute(
+            "DELETE FROM session_trusted WHERE session_id = @P1 AND participant_name = @P2",
+            &[&tib_id, &name],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn list_trusted_participants(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT participant_name FROM session_trusted \
+                 WHERE session_id = @P1 ORDER BY participant_name",
+                &[&tib_id],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let names = rows
+            .iter()
+            .filter_map(|r| r.try_get::<&str, _>(0).ok().flatten())
+            .map(|s| s.to_string())
+            .collect();
+        Ok(names)
     }
 
     // -- notifications --

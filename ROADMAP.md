@@ -54,10 +54,28 @@ Target:   server token (admin) + session tokens (scoped invites)
 
 The `session_runs.owner_instance` column and the existing per-session DB structure already anticipate this — sessions are first-class objects, the auth layer just hasn't caught up.
 
+### Per-participant invite tokens
+The current trust model uses display names to identify trusted participants. This works but has a brief impersonation window between disconnect and reconnect. Per-participant invite tokens would tie trust to a cryptographic token rather than a name string:
+
+- Each participant gets a unique, random token when invited to a session
+- The token authenticates the WebSocket connection and determines the display name
+- Trust is granted to the token, not the name — eliminating the impersonation window
+- Tokens can be revoked individually without affecting other participants
+
+This builds on per-session invite tokens (above) and eliminates the last name-based identity assumption in the trust system.
+
 ### User accounts
 - Register / login with email + password
 - Display names tied to accounts, not just a connection-time string
 - Personal session list showing sessions you created or were invited to
+
+### Auth service
+The shared team token is the weakest link in the security model — it provides no identity, no audit trail, and no revocation beyond rotating the entire token. An auth service (dedicated or integrated) should replace the token as the primary authentication mechanism. This could be:
+- A lightweight built-in auth service (JWT-based, user accounts in the existing DB)
+- An external identity provider via OAuth / SSO (preferred for teams already using one)
+- Both: internal auth as default, external IdP as an integration
+
+The auth service should issue short-lived session tokens that tie a WebSocket connection to a verified identity, eliminating the name-based trust model entirely.
 
 ### OAuth / SSO
 - **OAuth 2.0** — sign in with GitHub, Google, or any provider

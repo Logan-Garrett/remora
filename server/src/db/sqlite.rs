@@ -670,6 +670,67 @@ impl Database for SqliteDb {
         Ok(())
     }
 
+    // -- owner key --
+
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()> {
+        let sid_str = session_id.to_string();
+        sqlx::query("UPDATE sessions SET owner_key = ? WHERE id = ?")
+            .bind(key)
+            .bind(&sid_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let sid_str = session_id.to_string();
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT owner_key FROM sessions WHERE id = ?")
+                .bind(&sid_str)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.and_then(|(k,)| k))
+    }
+
+    // -- trusted participants --
+
+    async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        let sid_str = session_id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO session_trusted (session_id, participant_name, added_at) VALUES (?, ?, ?) \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(&sid_str)
+        .bind(name)
+        .bind(&now_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn untrust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        let sid_str = session_id.to_string();
+        sqlx::query("DELETE FROM session_trusted WHERE session_id = ? AND participant_name = ?")
+            .bind(&sid_str)
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_trusted_participants(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let sid_str = session_id.to_string();
+        let rows = sqlx::query_as::<_, (String,)>(
+            "SELECT participant_name FROM session_trusted \
+             WHERE session_id = ? ORDER BY participant_name",
+        )
+        .bind(&sid_str)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(n,)| n).collect())
+    }
+
     // -- notifications --
 
     async fn subscribe_notifications(&self) -> anyhow::Result<NotificationRx> {

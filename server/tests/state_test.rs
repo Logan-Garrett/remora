@@ -14,7 +14,7 @@ use remora_server::db::Database;
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
-async fn state_participant_join_leave() {
+async fn state_try_participant_join_leave() {
     let server = TestServer::start().await;
     let db = server.db();
 
@@ -38,9 +38,9 @@ async fn state_participant_join_leave() {
     let state = remora_server::state::AppState::new(db.clone(), "test-token".to_string(), config);
 
     // Join 3 participants
-    state.participant_join(sid, "alice").await;
-    state.participant_join(sid, "bob").await;
-    state.participant_join(sid, "charlie").await;
+    state.try_participant_join(sid, "alice").await;
+    state.try_participant_join(sid, "bob").await;
+    state.try_participant_join(sid, "charlie").await;
 
     let parts = state.get_participants(sid).await;
     assert_eq!(parts.len(), 3, "should have 3 participants");
@@ -62,8 +62,9 @@ async fn state_participant_join_leave() {
     let parts = state.get_participants(sid).await;
     assert_eq!(parts.len(), 2, "no-op leave should not change count");
 
-    // Duplicate join is idempotent (HashSet)
-    state.participant_join(sid, "bob").await;
+    // Duplicate join is rejected
+    let dup = state.try_participant_join(sid, "bob").await;
+    assert!(!dup, "duplicate join should return false");
     let parts = state.get_participants(sid).await;
     assert_eq!(parts.len(), 2, "duplicate join should not increase count");
 }
