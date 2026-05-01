@@ -24,7 +24,7 @@ jobs:
     name: Rust lint & format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -55,7 +55,7 @@ jobs:
       REMORA_DB_PROVIDER: postgres
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Create uuid-ossp extension
@@ -75,7 +75,7 @@ jobs:
       REMORA_DB_PROVIDER: sqlite
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run unit tests
@@ -106,7 +106,7 @@ jobs:
       REMORA_DB_PROVIDER: mssql
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install sqlcmd
@@ -143,7 +143,7 @@ jobs:
     name: Neovim plugin tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: rhysd/action-setup-vim@v1
         with:
           neovim: true
@@ -157,7 +157,7 @@ jobs:
     name: Sandbox E2E (Docker)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build sandbox image
         run: docker build -t remora-sandbox -f Dockerfile.sandbox .
       - name: Test container lifecycle
@@ -214,7 +214,7 @@ jobs:
     name: Security audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-audit
         run: cargo install cargo-audit
@@ -225,7 +225,7 @@ jobs:
     name: Web dependency audit & type-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -253,7 +253,7 @@ jobs:
       REMORA_CLAUDE_CMD: echo
       REMORA_WORKSPACE_DIR: /tmp/remora-e2e-workspaces
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -323,7 +323,7 @@ jobs:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -349,7 +349,7 @@ jobs:
     name: Release build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
