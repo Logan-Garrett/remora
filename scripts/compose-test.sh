@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# compose-test.sh — smoke-test the docker-compose stack locally or in CI.
+# compose-test.sh — smoke-test the docker-compose stack.
 #
-# Uses REMORA_CLAUDE_CMD=echo so no real Claude installation is needed.
+# Works on macOS, Linux, and Windows (Git Bash / WSL).
+# Uses REMORA_CLAUDE_CMD=echo so no real Claude credentials are needed.
 # Runs against a real Postgres instance (spun up by docker compose).
 #
 # Usage:
@@ -9,7 +10,7 @@
 #
 # On success: exits 0 and tears down all containers.
 # On failure: exits 1, leaves containers running for inspection.
-#             Clean up with: REMORA_TEAM_TOKEN=compose-test-token docker compose down -v
+#             Clean up with: REMORA_TEAM_TOKEN=x docker compose down -v
 
 set -euo pipefail
 
@@ -18,11 +19,14 @@ COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
 PASS=0
 FAIL=0
 
-# Export so docker compose can interpolate them in all invocations, including cleanup
+# Export so docker compose can interpolate in all invocations, including cleanup
 export REMORA_TEAM_TOKEN="compose-test-token"
+# Override claude command to a harmless builtin — the server starts fine,
+# and /run would just return echo output instead of a real Claude response.
 export REMORA_CLAUDE_CMD="echo"
-# Mount /bin/echo as the claude binary — enough for server to start; /run returns junk but server stays up
-export CLAUDE_BIN="/bin/echo"
+# Create a dummy .claude dir so the volume mount doesn't fail on fresh machines
+export HOME="${HOME:-/tmp}"
+mkdir -p "$HOME/.claude" 2>/dev/null || true
 
 SERVER_URL="http://localhost:7200"
 WEB_URL="http://localhost:3000"
@@ -34,9 +38,9 @@ fail()  { echo "   FAIL: $*"; FAIL=$((FAIL+1)); }
 cleanup() {
   echo ""
   if [[ $FAIL -gt 0 ]]; then
-    echo "❌  $FAIL check(s) failed. Containers left running — inspect with:"
+    echo "❌  $FAIL check(s) failed ($PASS passed). Containers left running — inspect with:"
     echo "    docker compose logs server"
-    echo "    REMORA_TEAM_TOKEN=$REMORA_TEAM_TOKEN docker compose down -v"
+    echo "    REMORA_TEAM_TOKEN=x docker compose down -v"
     exit 1
   else
     echo "✅  All $PASS checks passed. Tearing down..."
@@ -55,7 +59,7 @@ cd "$REPO_ROOT"
 pass "web client built"
 
 # ── Start the stack ──────────────────────────────────────────────────────────
-step "Starting docker compose stack (this builds the server image — ~2 min first run)"
+step "Starting docker compose stack (first build compiles Rust — this takes a few minutes)"
 docker compose -f "$COMPOSE_FILE" up -d --build
 pass "docker compose up"
 
@@ -70,7 +74,7 @@ for i in $(seq 1 30); do
   sleep 2
   if [[ $i -eq 30 ]]; then
     fail "server did not become healthy in 60s"
-    docker compose -f "$COMPOSE_FILE" logs server | tail -20
+    docker compose -f "$COMPOSE_FILE" logs server 2>/dev/null | tail -20
   fi
 done
 

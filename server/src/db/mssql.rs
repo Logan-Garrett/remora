@@ -185,6 +185,10 @@ impl Database for MssqlDb {
                 "20260428000002_indexes.sql",
                 include_str!("../../../migrations/mssql/20260428000002_indexes.sql"),
             ),
+            (
+                "20260501000000_session_status.sql",
+                include_str!("../../../migrations/mssql/20260501000000_session_status.sql"),
+            ),
         ];
 
         for (name, sql) in migration_files {
@@ -305,6 +309,32 @@ impl Database for MssqlDb {
             .and_then(|r| r.try_get::<i32, _>(0).ok().flatten())
             .unwrap_or(0);
         Ok(count > 0)
+    }
+
+    async fn get_session_status(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn
+            .query("SELECT status FROM sessions WHERE id = @P1", &[&tib_id])
+            .await?
+            .into_first_result()
+            .await?;
+        let status = rows
+            .first()
+            .and_then(|r| r.try_get::<&str, _>(0).ok().flatten())
+            .map(|s| s.to_string());
+        Ok(status)
+    }
+
+    async fn set_session_expired(&self, session_id: Uuid) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute(
+            "UPDATE sessions SET status = 'expired' WHERE id = @P1",
+            &[&tib_id],
+        )
+        .await?;
+        Ok(())
     }
 
     async fn count_sessions(&self) -> anyhow::Result<i64> {

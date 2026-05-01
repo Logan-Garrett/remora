@@ -118,6 +118,24 @@ impl Database for SqliteDb {
         Ok(row.0 > 0)
     }
 
+    async fn get_session_status(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let id_str = session_id.to_string();
+        let row: Option<(String,)> = sqlx::query_as("SELECT status FROM sessions WHERE id = ?")
+            .bind(&id_str)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|(s,)| s))
+    }
+
+    async fn set_session_expired(&self, session_id: Uuid) -> anyhow::Result<()> {
+        let id_str = session_id.to_string();
+        sqlx::query("UPDATE sessions SET status = 'expired' WHERE id = ?")
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn count_sessions(&self) -> anyhow::Result<i64> {
         let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions")
             .fetch_one(&self.pool)

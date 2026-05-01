@@ -33,6 +33,11 @@ pub trait Database: Send + Sync + 'static {
 
     async fn session_exists(&self, session_id: Uuid) -> anyhow::Result<bool>;
 
+    /// Returns the session status: `Some("active")`, `Some("expired")`, or `None` if not found.
+    async fn get_session_status(&self, session_id: Uuid) -> anyhow::Result<Option<String>>;
+
+    async fn set_session_expired(&self, session_id: Uuid) -> anyhow::Result<()>;
+
     async fn count_sessions(&self) -> anyhow::Result<i64>;
 
     async fn get_session_info(
@@ -232,6 +237,24 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.session_exists(session_id).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.session_exists(session_id).await,
+        }
+    }
+
+    async fn get_session_status(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        match self {
+            Self::Postgres(db) => db.get_session_status(session_id).await,
+            Self::Sqlite(db) => db.get_session_status(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_session_status(session_id).await,
+        }
+    }
+
+    async fn set_session_expired(&self, session_id: Uuid) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.set_session_expired(session_id).await,
+            Self::Sqlite(db) => db.set_session_expired(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.set_session_expired(session_id).await,
         }
     }
 
