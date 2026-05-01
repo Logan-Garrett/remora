@@ -261,13 +261,20 @@ All endpoints require `Authorization: Bearer <token>` header (or `token` query p
 - **WebSocket token in query string**: The team token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
 - **Session-scoped authorization**: Currently, knowing the team token grants access to all sessions. Per-session tokens are not yet implemented. Treat the team token as a shared secret for your team.
 
+## Roadmap
+
+Things planned or likely to happen:
+
+- **Per-session tokens** -- each session gets its own invite token so you can share a single session with someone without giving them access to everything on the server. The current single team token is all-or-nothing.
+- **User dashboard** -- a web page that shows all sessions a user has access to, lets them create new ones, and tracks usage. Useful when one server hosts sessions for multiple people or teams.
+- **Multi-team support** -- namespace sessions by team so different groups on the same server are isolated from each other without running separate instances.
+
 ## Contributing
 
 PRs are welcome. Some areas that could use help:
 
 - **Better streaming** -- token-level streaming instead of per-turn
 - **IDE plugins** -- VS Code, JetBrains, or other editors
-- **Web client** -- browser-based alternative to the Neovim plugin
 - **OAuth/JWT auth** -- replace the shared team token with proper user accounts
 - **Session persistence** -- export workspace state, push branches before cleanup
 - **Network proxy** -- egress proxy for sandbox containers to enforce fetch allowlists
