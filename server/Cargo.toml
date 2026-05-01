@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 remora-common = { path = "../common" }
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.8", features = ["ws"] }
 tower = { version = "0.5", features = ["limit"] }
 tokio.workspace = true
 serde.workspace = true
