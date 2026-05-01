@@ -70,16 +70,25 @@ remora/
 │
 ├── .github/
 │   ├── workflows/
-│   │   └── ci.yml       GitHub Actions CI pipeline
+│   │   ├── ci.yml           GitHub Actions CI pipeline
+│   │   └── release.yml      Publishes binaries + web client on v* tag push
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
-│   └── pull_request_template.md
+│   ├── pull_request_template.md
+│   ├── dependabot.yml       Weekly Cargo + npm + Actions dependency updates
+│   └── CODEOWNERS
 │
 ├── README.md            User-facing docs
 ├── ROADMAP.md           Planned features — read before adding something new
 ├── CONTRIBUTING.md      How to contribute, project layout, test guidelines
 ├── CHANGELOG.md         Version history (Keep a Changelog format)
+├── SECURITY.md          Vulnerability reporting + known limitations
+├── CODE_OF_CONDUCT.md   Contributor Covenant
+├── Dockerfile           Multi-stage build: rust:bookworm builder → debian:bookworm-slim runtime
+├── docker-compose.yml   Quick-start: postgres + server + nginx web client
+├── rust-toolchain.toml  Pins Rust channel to stable
+├── .editorconfig        Consistent editor settings (indent, charset, EOL)
 └── CLAUDE.md            This file
 ```
 
@@ -153,6 +162,45 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 | `REMORA_USE_SANDBOX` | `false` | Docker isolation per session |
 | `REMORA_RUN_TIMEOUT_SECS` | `600` | Max wall-clock time per Claude run |
 | `REMORA_IDLE_TIMEOUT_SECS` | `1800` | Seconds before idle session workspace is deleted |
+
+---
+
+## Docker Compose (Quick-Start)
+
+`docker-compose.yml` spins up three services: Postgres, the Remora server, and nginx serving the web client.
+
+```bash
+# 1. Build the web client (only needed once, or after web changes)
+cd web && npm install && npm run build && cd ..
+
+# 2. Start the stack
+REMORA_TEAM_TOKEN=yourtoken docker compose up -d
+
+# 3. Open the web client
+open http://localhost:3000
+# Server API is at http://localhost:7200
+
+# 4. Stop the stack
+docker compose down          # keeps data volumes
+docker compose down -v       # also wipes Postgres data + workspaces
+```
+
+**Claude CLI**: the `server` container mounts two things from the host:
+- `~/.claude` (read-only) — your Claude auth credentials
+- The `CLAUDE_BIN` path (defaults to `/usr/local/bin/claude`) as `/usr/local/bin/claude` — the CLI binary
+
+Find your claude path with `which claude` and set `CLAUDE_BIN` if it differs:
+```bash
+CLAUDE_BIN=$(which claude) REMORA_TEAM_TOKEN=yourtoken docker compose up -d
+```
+
+> Note: the host `claude` binary is a macOS Mach-O binary and **cannot execute inside the Linux container**. If you want `/run` to work with docker-compose, install Node.js and `@anthropic-ai/claude-code` inside the container, or use `REMORA_USE_SANDBOX=true` which runs Claude in `Dockerfile.sandbox` containers instead. For local dev, `REMORA_CLAUDE_CMD=echo` lets the server start without a real Claude installation.
+
+**Smoke test** (no real Claude needed):
+```bash
+bash scripts/compose-test.sh
+```
+This builds the image, starts the stack with `REMORA_CLAUDE_CMD=echo`, runs 13 checks (health, auth, CRUD), then tears everything down.
 
 ---
 
@@ -244,7 +292,13 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR:
 | `security-audit` | `cargo audit` |
 | `web-audit` | `npm audit --audit-level=high` + `tsc --noEmit` |
 | `e2e-web` | Playwright E2E (chromium, iPhone 12, iPhone 15 Pro, iPhone 15 Pro Max, Pixel 5, Pixel 7, Galaxy S24) |
+| `docker-compose-test` | `scripts/compose-test.sh` — builds image, starts stack, checks health + auth + CRUD |
 | `build` | Release build |
+
+`.github/workflows/release.yml` fires on `v*` tags and publishes binaries + web client to GitHub Releases:
+- `remora-server` and `remora-bridge` for linux-amd64, linux-arm64 (via zigbuild), macos-arm64
+- `remora-web.tar.gz` — pre-built web client static files
+- SHA256 checksums for each artifact
 
 ---
 

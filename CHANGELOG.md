@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ## [Unreleased]
 
+### Added
+- `Dockerfile` + `docker-compose.yml` — one-command local stack (Postgres + server + nginx web client)
+- `scripts/compose-test.sh` — 13-point smoke test for the compose stack; used in CI and locally
+- `docker-compose-test` CI job — builds image and runs smoke test on every push
+- `release.yml` GitHub Actions workflow — publishes binaries (linux-amd64, linux-arm64, macos-arm64) + web client tarball on `v*` tag push
+- `SECURITY.md` — vulnerability reporting policy and known security limitations
+- `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1
+- `.editorconfig` — consistent indent/charset/EOL settings across editors
+- `.github/dependabot.yml` — weekly automated updates for Cargo, npm, and GitHub Actions
+- `rust-toolchain.toml` — pins Rust channel to stable
+
 ---
 
 ## [0.8.0] — 2026-04-30

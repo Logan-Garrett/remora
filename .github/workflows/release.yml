@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Build server + bridge binaries ─────────────────────────────────────────
+  build-rust:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            server_name: remora-server-linux-amd64
+            bridge_name: remora-bridge-linux-amd64
+            use_zigbuild: false
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            server_name: remora-server-linux-arm64
+            bridge_name: remora-bridge-linux-arm64
+            use_zigbuild: true
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            server_name: remora-server-macos-arm64
+            bridge_name: remora-bridge-macos-arm64
+            use_zigbuild: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cargo-zigbuild (ARM cross-compile)
+        if: matrix.use_zigbuild
+        run: pip3 install ziglang && cargo install cargo-zigbuild
+
+      - name: Build (native)
+        if: "!matrix.use_zigbuild"
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p remora-server -p remora-bridge
+
+      - name: Build (zigbuild cross)
+        if: matrix.use_zigbuild
+        run: |
+          cargo zigbuild --release --target ${{ matrix.target }} -p remora-server -p remora-bridge
+
+      - name: Package binaries
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/remora-server dist/${{ matrix.server_name }}
+          cp target/${{ matrix.target }}/release/remora-bridge dist/${{ matrix.bridge_name }}
+          cd dist
+          sha256sum ${{ matrix.server_name }} > ${{ matrix.server_name }}.sha256
+          sha256sum ${{ matrix.bridge_name }} > ${{ matrix.bridge_name }}.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}
+          path: dist/
+          retention-days: 1
+
+  # ── Build web client ─────────────────────────────────────────────────────────
+  build-web:
+    name: Build web client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+      - name: Package
+        run: |
+          tar -czf remora-web.tar.gz -C web/dist .
+          sha256sum remora-web.tar.gz > remora-web.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-client
+          path: |
+            remora-web.tar.gz
+            remora-web.tar.gz.sha256
+          retention-days: 1
+
+  # ── Publish GitHub Release ───────────────────────────────────────────────────
+  release:
+    name: Publish release
+    needs: [build-rust, build-web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh artifacts/
+
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Extract the section for this version from CHANGELOG.md
+          NOTES=$(awk "/^## \[$VERSION\]/,/^## \[/" CHANGELOG.md | head -n -1 | tail -n +2)
+          if [[ -z "$NOTES" ]]; then
+            NOTES="See [CHANGELOG.md](CHANGELOG.md) for details."
+          fi
+          # Write to a file to avoid quoting issues
+          echo "$NOTES" > release_notes.md
+          echo "Try the hosted web client: https://remora.configurationproxy.com" >> release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: artifacts/*
+          fail_on_unmatched_files: false

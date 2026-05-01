@@ -319,6 +319,32 @@ jobs:
           path: web/playwright-report/
           retention-days: 7
 
+  docker-compose-test:
+    name: Docker Compose smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run compose smoke test
+        run: bash scripts/compose-test.sh
+        env:
+          # Use /bin/echo as the fake claude binary (Linux ELF, always present)
+          CLAUDE_BIN: /bin/echo
+
+      - name: Dump server logs on failure
+        if: failure()
+        run: docker compose logs server || true
+
   build:
     name: Release build
     runs-on: ubuntu-latest

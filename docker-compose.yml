@@ -1,0 +1,89 @@
+# Remora — docker-compose quick-start
+#
+# Requirements:
+#   - Docker + Compose v2
+#   - Claude CLI installed on the host (npm install -g @anthropic-ai/claude-code && claude login)
+#   - Web client built: cd web && npm install && npm run build
+#
+# Quick start:
+#   REMORA_TEAM_TOKEN=yourtoken docker compose up -d
+#
+# The server mounts your host's ~/.claude directory so it can invoke the
+# Claude CLI inside the container. If you haven't logged in on the host,
+# run `claude login` first.
+#
+# To use Docker sandbox isolation per session (recommended for production):
+#   REMORA_USE_SANDBOX=true REMORA_TEAM_TOKEN=yourtoken docker compose up -d
+#
+# Ports exposed:
+#   7200 — Remora server (API + WebSocket)
+#   3000 — Web client (nginx, requires web/dist to be built)
+#   5432 — Postgres (for direct DB access; not needed for normal use)
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: remora
+      POSTGRES_PASSWORD: remora
+      POSTGRES_DB: remora
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remora"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://remora:remora@db/remora
+      REMORA_DB_PROVIDER: postgres
+      REMORA_TEAM_TOKEN: ${REMORA_TEAM_TOKEN}
+      REMORA_BIND: 0.0.0.0:7200
+      REMORA_WORKSPACE_DIR: /var/lib/remora/workspaces
+      REMORA_SKIP_PERMISSIONS: ${REMORA_SKIP_PERMISSIONS:-true}
+      REMORA_USE_SANDBOX: ${REMORA_USE_SANDBOX:-false}
+      # Path to the Claude CLI binary inside the container.
+      # The host's ~/.claude is mounted read-only so authentication is shared.
+      REMORA_CLAUDE_CMD: ${REMORA_CLAUDE_CMD:-claude}
+    ports:
+      - "7200:7200"
+    volumes:
+      - remora_workspaces:/var/lib/remora/workspaces
+      # Share host Claude auth with the container
+      - ${HOME}/.claude:/home/remora/.claude:ro
+      # Mount the host claude binary so the container can invoke it.
+      # Find the path with: which claude
+      # Override via: CLAUDE_BIN=/path/to/claude docker compose up -d
+      - ${CLAUDE_BIN:-/usr/local/bin/claude}:/usr/local/bin/claude:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7200/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
+
+  web:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "3000:80"
+    volumes:
+      - ./web/dist:/usr/share/nginx/html:ro
+    # Build the web client before starting:
+    #   cd web && npm install && npm run build
+
+volumes:
+  postgres_data:
+  remora_workspaces:
