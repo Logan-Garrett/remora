@@ -161,7 +161,7 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 | `REMORA_SKIP_PERMISSIONS` | `true` | Pass `--dangerously-skip-permissions` to Claude |
 | `REMORA_USE_SANDBOX` | `false` | Docker isolation per session |
 | `REMORA_RUN_TIMEOUT_SECS` | `600` | Max wall-clock time per Claude run |
-| `REMORA_IDLE_TIMEOUT_SECS` | `1800` | Seconds before idle session workspace is deleted |
+| `REMORA_IDLE_TIMEOUT_SECS` | `1800` | Seconds before idle session workspace is deleted and session marked `expired`. Set to a very large number to disable. |
 
 ---
 
