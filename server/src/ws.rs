@@ -16,13 +16,22 @@ pub async fn handle_socket(
 ) {
     let (mut sink, mut stream) = socket.split();
 
-    // Verify session exists
-    let exists = state.db.session_exists(session_id).await.unwrap_or(false);
-
-    if !exists {
-        let msg = ServerMsg::Error {
-            message: "session not found".into(),
-        };
+    // Verify session exists and is active
+    let session_status = state
+        .db
+        .get_session_status(session_id)
+        .await
+        .unwrap_or(None);
+    let error_msg = match session_status.as_deref() {
+        Some("active") => None,
+        Some("expired") => Some(
+            "This session was cleaned up due to inactivity. Please create a new session.".into(),
+        ),
+        Some(s) => Some(format!("Session is not available (status: {s})")),
+        None => Some("Session not found.".into()),
+    };
+    if let Some(message) = error_msg {
+        let msg = ServerMsg::Error { message };
         let _ = sink
             .send(Message::Text(serde_json::to_string(&msg).unwrap()))
             .await;

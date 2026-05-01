@@ -83,6 +83,14 @@ pub async fn run_claude(
 
     // Run Claude CLI — either in sandbox container or directly on host
     let workspace_path = state.config.workspace_dir.join(session_id.to_string());
+    // Recreate workspace dir if idle cleanup removed it
+    if !workspace_path.exists() {
+        if let Err(e) = tokio::fs::create_dir_all(&workspace_path).await {
+            tracing::warn!("failed to recreate workspace for session {session_id}: {e}");
+        } else {
+            tracing::info!("recreated workspace for session {session_id}");
+        }
+    }
     let claude_cmd = &state.config.claude_cmd;
     let timeout = Duration::from_secs(state.config.run_timeout_secs);
 
