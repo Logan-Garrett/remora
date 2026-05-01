@@ -62,6 +62,59 @@ export interface ClientFetch {
   url: string;
 }
 
+export interface ClientAdd {
+  type: "add";
+  author: string;
+  path: string;
+}
+
+export interface ClientRepoAdd {
+  type: "repo_add";
+  author: string;
+  git_url: string;
+}
+
+export interface ClientRepoRemove {
+  type: "repo_remove";
+  author: string;
+  name: string;
+}
+
+export interface ClientRepoList {
+  type: "repo_list";
+  author: string;
+}
+
+export interface ClientAllowlist {
+  type: "allowlist";
+  author: string;
+}
+
+export interface ClientAllowlistAdd {
+  type: "allowlist_add";
+  author: string;
+  domain: string;
+}
+
+export interface ClientAllowlistRemove {
+  type: "allowlist_remove";
+  author: string;
+  domain: string;
+}
+
+export interface ClientApprove {
+  type: "approve";
+  author: string;
+  domain: string;
+  approved: boolean;
+}
+
+export interface ClientKick {
+  type: "kick";
+  author: string;
+  target: string;
+}
+
 export type ClientMessage =
   | ClientChat
   | ClientRun
@@ -69,7 +122,16 @@ export type ClientMessage =
   | ClientWho
   | ClientSessionInfo
   | ClientDiff
-  | ClientFetch;
+  | ClientFetch
+  | ClientAdd
+  | ClientRepoAdd
+  | ClientRepoRemove
+  | ClientRepoList
+  | ClientAllowlist
+  | ClientAllowlistAdd
+  | ClientAllowlistRemove
+  | ClientApprove
+  | ClientKick;
 
 export interface ConnectionConfig {
   url: string;

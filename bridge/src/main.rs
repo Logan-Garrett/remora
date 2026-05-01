@@ -47,8 +47,22 @@ async fn main() {
         }
     });
 
+    let shutdown = async {
+        #[cfg(unix)]
+        {
+            let mut sig = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to register SIGTERM handler");
+            sig.recv().await;
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c().await.ok();
+        }
+    };
+
     tokio::select! {
         _ = send_task => {}
         _ = recv_task => {}
+        _ = shutdown => {}
     }
 }

@@ -289,12 +289,93 @@ input::placeholder, textarea::placeholder {
   border-color: rgba(122, 162, 247, 0.25);
 }
 
-.chat-event.system {
+.chat-event.system,
+.chat-event.system-presence,
+.chat-event.system-run,
+.chat-event.system-run-done,
+.chat-event.system-error {
   align-self: center;
-  color: var(--text-muted);
   font-size: 12px;
   font-style: italic;
   padding: 4px 0;
+}
+
+.chat-event.system,
+.chat-event.system-presence {
+  color: var(--text-muted);
+}
+
+.chat-event.system-run {
+  color: var(--yellow);
+}
+
+.chat-event.system-run-done {
+  color: var(--green);
+}
+
+.chat-event.system-error {
+  color: var(--red);
+}
+
+.chat-event.tool-call {
+  background: rgba(224, 175, 104, 0.06);
+  border: 1px solid rgba(224, 175, 104, 0.15);
+  width: 100%;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.chat-event.tool-result {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  width: 100%;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.chat-event.tool-result.tool-error {
+  border-color: rgba(247, 118, 142, 0.3);
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-badge {
+  background: rgba(224, 175, 104, 0.2) !important;
+  color: var(--yellow) !important;
+}
+
+.result-badge {
+  background: rgba(122, 162, 247, 0.15) !important;
+  color: var(--accent) !important;
+}
+
+.error-badge {
+  background: rgba(247, 118, 142, 0.15) !important;
+  color: var(--red) !important;
+}
+
+.tool-summary {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.tool-detail {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.chat-event.claude {
+  background: rgba(158, 206, 106, 0.08);
+  border: 1px solid rgba(158, 206, 106, 0.2);
+  max-width: 90%;
+}
+
+.claude-author {
+  color: var(--green) !important;
 }
 
 .chat-event.file,

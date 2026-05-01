@@ -1623,6 +1623,7 @@ name = "remora-bridge"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "libc",
  "remora-common",
  "serde",
  "serde_json",

@@ -24,15 +24,20 @@ export async function listSessions(
 
 export async function createSession(
   config: ConnectionConfig,
-  description: string
+  description: string,
+  repos?: string[]
 ): Promise<SessionInfo> {
+  const body: Record<string, unknown> = { description };
+  if (repos && repos.length > 0) {
+    body.repos = repos;
+  }
   const resp = await fetch(`${config.url}/sessions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ description }),
+    body: JSON.stringify(body),
   });
   if (resp.status === 401) throw new Error("Invalid token");
   if (!resp.ok) throw new Error(`Server error: ${resp.status}`);

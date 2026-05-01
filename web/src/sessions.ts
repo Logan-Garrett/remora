@@ -2,6 +2,78 @@ import { el, clear } from "./dom";
 import { listSessions, createSession, deleteSession } from "./api";
 import type { ConnectionConfig, SessionInfo } from "./types";
 
+function showCreateModal(
+  config: ConnectionConfig,
+  onCreated: (session: SessionInfo) => void
+): void {
+  const reposInput = el("input", {
+    type: "text",
+    placeholder: "https://github.com/user/repo.git (space-separated)",
+  }) as HTMLInputElement;
+
+  const descInput = el("input", {
+    type: "text",
+    placeholder: "What is this session for?",
+  }) as HTMLInputElement;
+
+  const errorEl = el("div", { class: "login-error" });
+  const createBtn = el("button", { class: "primary" }, "Create & Join");
+  const cancelBtn = el("button", {}, "Cancel");
+
+  const modal = el(
+    "div",
+    { class: "modal" },
+    el("h2", {}, "New Session"),
+    el("div", { class: "field" }, el("label", {}, "Git Repos (optional)"), reposInput),
+    el("div", { class: "field" }, el("label", {}, "Description"), descInput),
+    errorEl,
+    el("div", { class: "modal-buttons" }, cancelBtn, createBtn)
+  );
+
+  const overlay = el("div", { class: "modal-overlay" }, modal);
+  document.body.appendChild(overlay);
+
+  cancelBtn.addEventListener("click", () => {
+    document.body.removeChild(overlay);
+  });
+
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) document.body.removeChild(overlay);
+  });
+
+  async function handleCreate(): Promise<void> {
+    const desc = descInput.value.trim();
+    if (!desc) {
+      errorEl.textContent = "Description is required";
+      return;
+    }
+
+    const reposRaw = reposInput.value.trim();
+    const repos = reposRaw ? reposRaw.split(/\s+/).filter(Boolean) : undefined;
+
+    createBtn.disabled = true;
+    createBtn.textContent = "Creating...";
+    errorEl.textContent = "";
+
+    try {
+      const session = await createSession(config, desc, repos);
+      document.body.removeChild(overlay);
+      onCreated(session);
+    } catch (err) {
+      errorEl.textContent = `${err}`;
+      createBtn.disabled = false;
+      createBtn.textContent = "Create & Join";
+    }
+  }
+
+  createBtn.addEventListener("click", handleCreate);
+  descInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleCreate();
+  });
+
+  reposInput.focus();
+}
+
 export function renderSessions(
   container: HTMLElement,
   config: ConnectionConfig,
@@ -9,6 +81,11 @@ export function renderSessions(
   onDisconnect: () => void
 ): void {
   clear(container);
+
+  const newBtn = el("button", { class: "primary" }, "New Session");
+  newBtn.addEventListener("click", () => {
+    showCreateModal(config, onJoin);
+  });
 
   const header = el(
     "div",
@@ -18,6 +95,7 @@ export function renderSessions(
     el(
       "div",
       { class: "header-actions" },
+      newBtn,
       (() => {
         const btn = el("button", {}, "Disconnect");
         btn.addEventListener("click", onDisconnect);
@@ -27,26 +105,12 @@ export function renderSessions(
   );
 
   const listContainer = el("div", { class: "sessions-list" });
-  const descInput = el("input", {
-    type: "text",
-    placeholder: "New session description...",
-  }) as HTMLInputElement;
-
-  const createBtn = el("button", { class: "primary" }, "Create");
-
-  const toolbar = el(
-    "div",
-    { class: "sessions-toolbar" },
-    descInput,
-    createBtn
-  );
 
   const view = el(
     "div",
     { class: "sessions-view" },
     header,
-    listContainer,
-    toolbar
+    listContainer
   );
 
   container.appendChild(view);
@@ -68,7 +132,7 @@ export function renderSessions(
         el(
           "div",
           { class: "sessions-empty" },
-          "No sessions yet. Create one below."
+          "No sessions yet. Click \"New Session\" to create one."
         )
       );
       return;
@@ -114,25 +178,6 @@ export function renderSessions(
       listContainer.appendChild(card);
     }
   }
-
-  createBtn.addEventListener("click", async () => {
-    const desc = descInput.value.trim();
-    if (!desc) return;
-    createBtn.disabled = true;
-    try {
-      await createSession(config, desc);
-      descInput.value = "";
-      loadSessions();
-    } catch (err) {
-      alert(`Create failed: ${err}`);
-    } finally {
-      createBtn.disabled = false;
-    }
-  });
-
-  descInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") createBtn.click();
-  });
 
   loadSessions();
 }

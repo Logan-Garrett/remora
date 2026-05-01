@@ -11,15 +11,94 @@ function formatTime(iso: string): string {
   });
 }
 
+function classifySystem(text: string): string {
+  if (text.startsWith("Failed") || text.includes("error")) return "system-error";
+  if (text.includes("started a Claude run")) return "system-run";
+  if (text.includes("run completed")) return "system-run-done";
+  if (text.includes("joined") || text.includes("left")) return "system-presence";
+  return "system";
+}
+
 function renderEvent(event: RemoraEvent, selfName: string): HTMLElement {
   const kind = event.kind;
+  const text = (event.payload.text as string) ?? "";
 
-  // System events (joins, info, errors)
+  // System events (joins, info, errors, run status)
   if (kind === "system" || kind === "clear_marker" || kind === "kick") {
-    const text =
-      (event.payload.text as string) ?? kind;
-    const div = el("div", { class: "chat-event system" });
-    div.textContent = text;
+    const cls = classifySystem(text);
+    const div = el("div", { class: `chat-event ${cls}` });
+    div.textContent = text || kind;
+    return div;
+  }
+
+  // Tool calls — show tool name + description
+  if (kind === "tool_call") {
+    const tool = (event.payload.tool as string) ?? "unknown";
+    const args = event.payload.args as Record<string, unknown> | undefined;
+    const desc = (args?.description as string) ?? "";
+    const command = (args?.command as string) ?? "";
+    const filePath = (args?.file_path as string) ?? "";
+
+    const div = el("div", { class: "chat-event tool-call" });
+
+    const badge = el("span", { class: "badge tool-badge" });
+    badge.textContent = tool;
+
+    const summary = el("span", { class: "tool-summary" });
+    summary.textContent = desc || command || filePath || JSON.stringify(args);
+
+    const header = el("div", { class: "tool-header" }, badge, summary);
+    div.appendChild(header);
+
+    // Show command/path in a code block if present
+    const detail = command || filePath;
+    if (detail) {
+      const code = el("div", { class: "content-code tool-detail" });
+      code.textContent = detail;
+      div.appendChild(code);
+    }
+
+    return div;
+  }
+
+  // Tool results — show output
+  if (kind === "tool_result") {
+    const output = (event.payload.output as string) ?? "";
+    const isError = event.payload.is_error as boolean;
+
+    const div = el("div", { class: `chat-event tool-result${isError ? " tool-error" : ""}` });
+
+    const badge = el("span", { class: `badge ${isError ? "error-badge" : "result-badge"}` });
+    badge.textContent = isError ? "ERROR" : "RESULT";
+
+    div.appendChild(badge);
+
+    if (output) {
+      const code = el("div", { class: "content-code" });
+      code.textContent = output;
+      div.appendChild(code);
+    }
+
+    return div;
+  }
+
+  // Claude responses
+  if (kind === "claude_response") {
+    const div = el("div", { class: "chat-event claude" });
+
+    const authorSpan = el("span", { class: "author claude-author" });
+    authorSpan.textContent = "Claude";
+
+    const timeSpan = el("span", { class: "timestamp" });
+    timeSpan.textContent = formatTime(event.timestamp);
+
+    const header = el("div", {}, authorSpan, timeSpan);
+
+    const content = el("div", { class: "content" });
+    content.textContent = text;
+
+    div.appendChild(header);
+    div.appendChild(content);
     return div;
   }
 
@@ -39,7 +118,7 @@ function renderEvent(event: RemoraEvent, selfName: string): HTMLElement {
     const header = el("div", {}, authorSpan, timeSpan);
 
     const content = el("div", { class: "content" });
-    content.textContent = (event.payload.text as string) ?? "";
+    content.textContent = text;
 
     div.appendChild(header);
     div.appendChild(content);
@@ -69,9 +148,7 @@ function renderEvent(event: RemoraEvent, selfName: string): HTMLElement {
     }
 
     const codeContent =
-      (event.payload.content as string) ??
-      (event.payload.text as string) ??
-      "";
+      (event.payload.content as string) ?? text ?? "";
 
     const code = el("div", { class: "content-code" });
     code.textContent = codeContent;
@@ -83,8 +160,8 @@ function renderEvent(event: RemoraEvent, selfName: string): HTMLElement {
 
   // Fallback for unknown event kinds
   const div = el("div", { class: "chat-event system" });
-  const text = (event.payload.text as string) ?? JSON.stringify(event.payload);
-  div.textContent = `[${kind}] ${text}`;
+  const fallback = text || JSON.stringify(event.payload);
+  div.textContent = `[${kind}] ${fallback}`;
   return div;
 }
 
