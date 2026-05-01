@@ -11,17 +11,32 @@ Collaborative Claude Code sessions. Multiple devs share a single session with a 
 
 ## Screenshots
 
-### Session Picker (`<space>ms`)
+### Web Client — Login
+Connect from any browser. Enter your server URL, team token, and display name.
+
+![Web Login](docs/images/web_login.png)
+
+### Web Client — Sessions
+Browse, create, and manage sessions. Click to join, or create a new one with optional git repos.
+
+![Web Sessions](docs/images/web_sessions.png)
+
+### Web Client — Chat
+Real-time event log. Chat with your team, run Claude, and see tool calls and responses as they happen.
+
+![Web Chat](docs/images/web_chat.png)
+
+### Neovim — Session Picker (`<space>ms`)
 Browse and join sessions with Telescope.
 
 ![Session Picker](assets/session-picker.svg)
 
-### Shared Chat Window
+### Neovim — Shared Chat Window
 Real-time event log with syntax highlighting. Everyone sees chat, tool calls, and Claude's responses as they happen.
 
 ![Chat Window](assets/chat-window.svg)
 
-### Command Picker (`<space>mc`)
+### Neovim — Command Picker (`<space>mc`)
 Fuzzy-searchable command palette for all Remora actions.
 
 ![Command Picker](assets/command-picker.svg)
