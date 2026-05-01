@@ -560,6 +560,29 @@ jobs:
         if: failure()
         run: docker compose logs server || true
 
+  coverage:
+    name: Test coverage
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "sqlite:coverage_test.db"
+      REMORA_DB_PROVIDER: sqlite
+      REMORA_TEAM_TOKEN: test-token
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate coverage (LCOV)
+        run: cargo llvm-cov --all --lcov --output-path lcov.info -- --include-ignored --test-threads=1
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+
   build:
     name: Release build
     runs-on: ubuntu-latest
