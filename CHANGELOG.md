@@ -14,8 +14,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ### Added
 - **Trusted participants** — `/trust <name>` and `/untrust <name>` commands; trusted users' messages reach Claude as plain instructions, untrusted messages are wrapped in `<untrusted_content>` tags
-- **Session ownership** — first participant to join becomes the session owner; only the owner can `/trust`, `/untrust`, and `/kick`
+- **Session ownership via owner_key** — sessions get a unique `owner_key` UUID on creation; pass it in WebSocket query params to claim persistent ownership (survives reconnects and server restarts). Without the key, first-joiner becomes owner (backward compatible). Only the owner can `/trust`, `/untrust`, and `/kick`
+- **Owner key in clients** — web UI stores owner_key in sessionStorage and auto-passes it on connect; "Owner Key" button in chat header copies key to clipboard. Neovim plugin stores key in state and provides `:RemoraOwnerKey` command. `/info` command shows key to the current owner
 - **Unique display names** — server rejects WebSocket connections if someone with the same name is already connected to the session
+- **Session expired UX** — sessions marked `expired` on idle cleanup; connecting to an expired session shows a friendly message instead of "session not found". Workspace auto-recreated on `/run` if idle cleanup removed it
 - `Dockerfile` + `docker-compose.yml` — one-command local stack (Postgres + server + nginx web client, Claude CLI built in)
 - `scripts/compose-test.sh` — 13-point smoke test for the compose stack; used in CI and locally
 - `docker-compose-test` CI job — builds image and runs smoke test on every push

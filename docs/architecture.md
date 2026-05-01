@@ -71,6 +71,8 @@ erDiagram
         bigint      tokens_used_today
         date        tokens_reset_date
         timestamptz idle_since
+        text        status
+        text        owner_key
     }
 
     events {
@@ -123,11 +125,18 @@ erDiagram
         boolean     approved
     }
 
+    session_trusted {
+        uuid        session_id       FK
+        text        participant_name
+        timestamptz added_at
+    }
+
     sessions ||--o{ events            : "append-only log"
     sessions ||--o{ session_repos     : "cloned repos"
     sessions ||--o{ session_runs      : "claude runs"
     sessions ||--o{ session_allowlist : "approved domains"
     sessions ||--o{ pending_approvals : "pending fetch requests"
+    sessions ||--o{ session_trusted   : "trusted participants"
 ```
 
 ### Event `kind` values

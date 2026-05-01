@@ -109,6 +109,8 @@ local valid_commands = {
   "/approve example.com",
   "/deny example.com",
   "/kick someone",
+  "/trust alice",
+  "/untrust alice",
   "/join some-uuid",
   "/sessions",
   "/session new https://github.com/foo/bar \"test desc\"",
@@ -156,6 +158,8 @@ end
 test_pattern("/add foo.lua", "^/add%s+(.+)$", "foo.lua", "/add extracts path")
 test_pattern("/fetch https://x.com", "^/fetch%s+(.+)$", "https://x.com", "/fetch extracts url")
 test_pattern("/kick bob", "^/kick%s+(.+)$", "bob", "/kick extracts target")
+test_pattern("/trust alice", "^/trust%s+(.+)$", "alice", "/trust extracts target")
+test_pattern("/untrust alice", "^/untrust%s+(.+)$", "alice", "/untrust extracts target")
 test_pattern("/repo add https://gh.com/x", "^/repo%s+add%s+(.+)$", "https://gh.com/x", "/repo add extracts url")
 test_pattern("/repo remove myrepo", "^/repo%s+remove%s+(.+)$", "myrepo", "/repo remove extracts name")
 test_pattern("/approve example.com", "^/approve%s+(.+)$", "example.com", "/approve extracts domain")
