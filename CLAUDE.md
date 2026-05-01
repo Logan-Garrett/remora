@@ -229,21 +229,49 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR:
 
 ---
 
-## Deploy (Raspberry Pi)
+## Deploy (Self-Hosted Example)
 
-The production server runs on a Raspberry Pi accessible at `lg3@raspberrypi.local`.
-- API: `https://the502.configurationproxy.com` → Pi port 3001 (Cloudflare tunnel)
-- Web: `https://remora.configurationproxy.com` → Pi port 3000 (Cloudflare tunnel)
-- Secrets: `~/.remora.env` on the Pi (chmod 600)
-- Start: `~/remora/start.sh`
-- Stop: `~/remora/stop.sh`
+The server binary and web client are deployed separately. The web client is a static site that can connect to any Remora server URL — it is not tied to a specific host. The URL, token, and display name are entered at login time.
 
-Cross-compile for ARM64 from macOS:
+Below is an example deployment on a Raspberry Pi, but the same pattern applies to any Linux host:
+
+- The server binary runs on the host and exposes a port (default `7200`, configurable via `REMORA_BIND`)
+- The web client is a static `dist/` folder served by any HTTP server (nginx, python, caddy, etc.)
+- A reverse proxy or tunnel (e.g. Cloudflare Tunnel, nginx, Caddy) handles TLS and forwards to the local ports
+- Secrets live in a `~/.remora.env` file (chmod 600) sourced by the start script
+
+### Start / stop scripts
+
+Place these on the server host. The start script reads `~/.remora.env` which must contain `DATABASE_URL` and `REMORA_TEAM_TOKEN`.
+
+```bash
+# start.sh
+#!/bin/bash
+set -e
+set -a; source ~/.remora.env; set +a
+
+export REMORA_BIND=0.0.0.0:7200
+export REMORA_DB_PROVIDER=sqlite   # or postgres
+export REMORA_WORKSPACE_DIR=/var/lib/remora/workspaces
+export REMORA_SKIP_PERMISSIONS=true
+
+nohup /path/to/remora-server >> server.log 2>&1 &
+nohup python3 -m http.server 3000 --directory /path/to/web/dist >> web.log 2>&1 &
+```
+
+```bash
+# stop.sh
+kill $(pgrep -f remora-server) 2>/dev/null || true
+kill $(pgrep -f 'http.server.*3000') 2>/dev/null || true
+```
+
+### Cross-compile for ARM64 (Raspberry Pi, etc.)
+
 ```bash
 cargo zigbuild --release --target aarch64-unknown-linux-gnu -p remora-server
-scp target/aarch64-unknown-linux-gnu/release/remora-server lg3@raspberrypi.local:~/remora/remora-server
-scp -r web/dist/* lg3@raspberrypi.local:~/remora/web/
-ssh lg3@raspberrypi.local "~/remora/stop.sh && ~/remora/start.sh"
+scp target/aarch64-unknown-linux-gnu/release/remora-server user@host:~/remora/remora-server
+scp -r web/dist/* user@host:~/remora/web/
+ssh user@host "~/remora/stop.sh && ~/remora/start.sh"
 ```
 
 ---
