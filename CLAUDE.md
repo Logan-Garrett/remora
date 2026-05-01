@@ -285,6 +285,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR:
 | `security-audit` | `cargo audit` |
 | `web-audit` | `npm audit --audit-level=high` + `tsc --noEmit` |
 | `e2e-web` | Playwright E2E (chromium, iPhone 12, iPhone 15 Pro, iPhone 15 Pro Max, Pixel 5, Pixel 7, Galaxy S24) |
+| `test-windows` | Windows: Rust lint, SQLite tests, MSSQL (native SQL Server Express), web build + audit |
 | `docker-compose-test` | `scripts/compose-test.sh` — builds image, starts stack, checks health + auth + CRUD |
 | `build` | Release build |
 
