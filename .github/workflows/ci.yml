@@ -337,9 +337,6 @@ jobs:
 
       - name: Run compose smoke test
         run: bash scripts/compose-test.sh
-        env:
-          # Use /bin/echo as the fake claude binary (Linux ELF, always present)
-          CLAUDE_BIN: /bin/echo
 
       - name: Dump server logs on failure
         if: failure()

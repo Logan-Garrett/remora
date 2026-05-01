@@ -185,16 +185,9 @@ docker compose down          # keeps data volumes
 docker compose down -v       # also wipes Postgres data + workspaces
 ```
 
-**Claude CLI**: the `server` container mounts two things from the host:
-- `~/.claude` (read-only) — your Claude auth credentials
-- The `CLAUDE_BIN` path (defaults to `/usr/local/bin/claude`) as `/usr/local/bin/claude` — the CLI binary
+**Claude CLI** is installed inside the Docker image (Node.js 20 + `@anthropic-ai/claude-code`). Your host's `~/.claude` directory is mounted read-only into the container so Claude can use your authentication. If you haven't logged in on the host, run `claude login` first.
 
-Find your claude path with `which claude` and set `CLAUDE_BIN` if it differs:
-```bash
-CLAUDE_BIN=$(which claude) REMORA_TEAM_TOKEN=yourtoken docker compose up -d
-```
-
-> Note: the host `claude` binary is a macOS Mach-O binary and **cannot execute inside the Linux container**. If you want `/run` to work with docker-compose, install Node.js and `@anthropic-ai/claude-code` inside the container, or use `REMORA_USE_SANDBOX=true` which runs Claude in `Dockerfile.sandbox` containers instead. For local dev, `REMORA_CLAUDE_CMD=echo` lets the server start without a real Claude installation.
+For testing without real Claude credentials, set `REMORA_CLAUDE_CMD=echo`.
 
 **Smoke test** (no real Claude needed):
 ```bash
