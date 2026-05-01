@@ -351,6 +351,23 @@ ssh user@host "~/remora/stop.sh && ~/remora/start.sh"
 
 ---
 
+## Claude Code Skill
+
+A `/remora` skill is included at `.claude/skills/remora-chat.md`. Since `.claude/` is in `.gitignore`, install it manually:
+
+```bash
+# Global install (works from any directory)
+mkdir -p ~/.claude/skills
+cp .claude/skills/remora-chat.md ~/.claude/skills/
+
+# Or project-level install
+cp -r .claude/skills/ <your-project>/.claude/skills/
+```
+
+Once installed, use `/remora` in Claude Code to list sessions, send messages, and trigger `/run` on a remote Remora server. The skill uses `scripts/remora-cli.sh` which wraps the REST API and the `remora-bridge` binary for WebSocket.
+
+---
+
 ## Common Mistakes to Avoid
 
 - **Don't use `innerHTML`** anywhere in the web client — ever.
