@@ -71,7 +71,7 @@ jobs:
           sha256sum ${{ matrix.bridge_name }} > ${{ matrix.bridge_name }}.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.target }}
           path: dist/
@@ -104,7 +104,7 @@ jobs:
           sha256sum remora-web.tar.gz > remora-web.tar.gz.sha256
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-client
           path: |
