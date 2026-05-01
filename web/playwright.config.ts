@@ -21,14 +21,36 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
       testIgnore: /mobile\.spec\.ts/,
     },
+    // iOS — oldest to newest available in Playwright
     {
-      name: "mobile-chrome",
+      name: "iPhone 12",
+      use: { ...devices["iPhone 12"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
+    {
+      name: "iPhone 15 Pro",
+      use: { ...devices["iPhone 15 Pro"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
+    {
+      name: "iPhone 15 Pro Max",
+      use: { ...devices["iPhone 15 Pro Max"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
+    // Android — Pixel and Samsung flagship
+    {
+      name: "Pixel 5",
       use: { ...devices["Pixel 5"] },
       testMatch: /mobile\.spec\.ts/,
     },
     {
-      name: "mobile-safari",
-      use: { ...devices["iPhone 12"] },
+      name: "Pixel 7",
+      use: { ...devices["Pixel 7"] },
+      testMatch: /mobile\.spec\.ts/,
+    },
+    {
+      name: "Galaxy S24",
+      use: { ...devices["Galaxy S24"] },
       testMatch: /mobile\.spec\.ts/,
     },
   ],
