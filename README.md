@@ -1,6 +1,9 @@
 # Remora
 
 [![CI](https://github.com/Logan-Garrett/remora/actions/workflows/ci.yml/badge.svg)](https://github.com/Logan-Garrett/remora/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Logan-Garrett/remora)](https://github.com/Logan-Garrett/remora/releases/latest)
+[![GitHub stars](https://img.shields.io/github/stars/Logan-Garrett/remora)](https://github.com/Logan-Garrett/remora/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/Logan-Garrett/remora)](https://github.com/Logan-Garrett/remora/issues)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![Postgres](https://img.shields.io/badge/db-postgres-336791.svg)](#database-support)
@@ -10,6 +13,14 @@
 Collaborative Claude Code sessions. Multiple devs share a single session with a shared, append-only event log. Chat freely, add context, and invoke Claude together.
 
 **[Try the hosted web client →](https://remora.configurationproxy.com)** — point it at any Remora server you run.
+
+## Why Remora?
+
+The remora is a fish that attaches to larger marine animals — sharks, rays, whales — and travels with them. It doesn't steer, doesn't fight, doesn't change the host. It just rides along, going wherever the bigger animal goes.
+
+This project does the same thing to Claude. It doesn't modify Claude, doesn't replace it, doesn't wrap it in a new model. It just attaches — multiple people at once — and rides along on whatever Claude is doing. The session travels with Claude's context. Everyone sees the same thing. When Claude moves, everyone moves with it.
+
+Multiple remoras can attach to the same host. That's the whole point.
 
 ## Screenshots
 
@@ -57,6 +68,8 @@ Everything is persisted in the database. Reconnect anytime and get the full hist
 ## Architecture
 
 ![Architecture](assets/architecture.svg)
+
+> See [docs/architecture.md](docs/architecture.md) for a full deep-dive with Mermaid diagrams — database schema, `/run` sequence, WebSocket state machine, and multi-instance deployment.
 
 - **Web Client** -- Static TypeScript/Vite app. Server-agnostic: you enter the server URL, token, and display name at login. One hosted copy of the web client can connect to any Remora server — you don't need to deploy the frontend yourself.
 - **Neovim Plugin** -- Lua plugin with Telescope integration. Communicates via a small Rust bridge binary over WebSocket.
