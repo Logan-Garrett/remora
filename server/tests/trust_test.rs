@@ -260,10 +260,12 @@ async fn ws_same_name_different_sessions_ok() {
 #[ignore = "requires DATABASE_URL"]
 async fn ws_trust_by_non_owner_rejected() {
     let server = TestServer::start().await;
-    let sid = server.create_session("trust-owner").await;
+    let (sid, owner_key) = server.create_session_with_key("trust-owner").await;
 
-    // Alice connects first → becomes owner
-    let (_sink_a, mut stream_a) = server.connect_ws(sid, "alice").await;
+    // Alice connects with owner_key → becomes owner
+    let (_sink_a, mut stream_a) = server
+        .connect_ws_with_owner_key(sid, "alice", &owner_key)
+        .await;
     let _ = TestServer::drain_events(&mut stream_a, 1500).await;
 
     // Bob connects second → not owner
@@ -453,10 +455,12 @@ async fn db_owner_key_persists() {
 #[ignore = "requires DATABASE_URL"]
 async fn ws_trust_by_owner_succeeds() {
     let server = TestServer::start().await;
-    let sid = server.create_session("trust-ok").await;
+    let (sid, owner_key) = server.create_session_with_key("trust-ok").await;
 
-    // Alice connects first → becomes owner
-    let (mut sink_a, mut stream_a) = server.connect_ws(sid, "alice").await;
+    // Alice connects with owner_key → becomes owner
+    let (mut sink_a, mut stream_a) = server
+        .connect_ws_with_owner_key(sid, "alice", &owner_key)
+        .await;
     let _ = TestServer::drain_events(&mut stream_a, 1500).await;
 
     // Alice trusts bob

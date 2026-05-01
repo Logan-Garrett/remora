@@ -56,17 +56,20 @@ pub async fn handle_socket(
     }
 
     // Determine session ownership:
-    // 1. If valid owner_key provided, force this participant as owner
-    // 2. Otherwise, first-joiner becomes owner (backward compatible)
+    // 1. If valid owner_key provided → force this participant as owner
+    // 2. If session has an owner_key in DB → only key holder can be owner (no fallback)
+    // 3. If session has NO owner_key in DB → first-joiner becomes owner (backward compatible)
+    let db_key = state.db.get_owner_key(session_id).await.unwrap_or(None);
     if let Some(ref key) = owner_key {
-        let db_key = state.db.get_owner_key(session_id).await.unwrap_or(None);
         if db_key.as_deref() == Some(key.as_str()) {
             state.force_set_session_owner(session_id, &name).await;
         }
         // Invalid key: silently continue as regular participant
+    } else if db_key.is_none() {
+        // No owner_key in DB: legacy behavior, first-joiner becomes owner
+        state.set_session_owner(session_id, &name).await;
     }
-    // Fallback: if no owner set yet, first joiner becomes owner
-    state.set_session_owner(session_id, &name).await;
+    // If session HAS an owner_key but this client didn't provide it: no ownership
 
     // Subscribe BEFORE inserting join event so we don't miss it in the live stream
     let (mut rx, cancel_token) = state.subscribe(session_id, &name).await;

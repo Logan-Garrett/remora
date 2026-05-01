@@ -1,5 +1,5 @@
 import { el, clear } from "./dom";
-import { buildWsUrl } from "./api";
+import { buildWsUrl, getOwnerKey } from "./api";
 import { RemoraSocket } from "./ws";
 import { parseCommand } from "./commands";
 import type { ConnectionConfig, SessionInfo, RemoraEvent, ClientMessage } from "./types";
@@ -180,6 +180,21 @@ export function renderChat(
     onLeave();
   });
 
+  // Build header actions — include "Owner Key" button if we have one
+  const actionsEl = el("div", { class: "header-actions" });
+  const ownerKey = getOwnerKey(session.id);
+  if (ownerKey) {
+    const keyBtn = el("button", {}, "Owner Key");
+    keyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(ownerKey).then(
+        () => { keyBtn.textContent = "Copied!"; setTimeout(() => { keyBtn.textContent = "Owner Key"; }, 2000); },
+        () => { window.prompt("Copy your owner key:", ownerKey); }
+      );
+    });
+    actionsEl.appendChild(keyBtn);
+  }
+  actionsEl.appendChild(leaveBtn);
+
   const header = el(
     "div",
     { class: "header" },
@@ -189,7 +204,7 @@ export function renderChat(
       session.description || session.id.slice(0, 8)
     ),
     statusEl,
-    el("div", { class: "header-actions" }, leaveBtn)
+    actionsEl
   );
 
   const messagesEl = el("div", { class: "chat-messages" });

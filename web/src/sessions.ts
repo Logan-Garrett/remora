@@ -1,5 +1,5 @@
 import { el, clear } from "./dom";
-import { listSessions, createSession, deleteSession } from "./api";
+import { listSessions, createSession, deleteSession, storeOwnerKey } from "./api";
 import type { ConnectionConfig, SessionInfo } from "./types";
 
 function showCreateModal(
@@ -57,6 +57,10 @@ function showCreateModal(
 
     try {
       const session = await createSession(config, desc, repos);
+      // Store the owner_key so we auto-claim ownership on WS connect
+      if (session.owner_key) {
+        storeOwnerKey(session.id, session.owner_key);
+      }
       document.body.removeChild(overlay);
       onCreated(session);
     } catch (err) {

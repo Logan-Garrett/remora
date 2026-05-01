@@ -2,6 +2,7 @@ export interface SessionInfo {
   id: string;
   description: string;
   created_at: string;
+  owner_key?: string;
 }
 
 export interface RemoraEvent {

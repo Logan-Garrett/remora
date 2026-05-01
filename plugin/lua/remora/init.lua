@@ -470,6 +470,7 @@ local function attempt_reconnect()
     token = state.token,
     name = state.name,
     bridge = state.bridge_path,
+    owner_key = state.owner_key,
     _reconnect = true,
   })
 end
@@ -738,7 +739,7 @@ function M.statusline()
 end
 
 --- Connect to a remora session.
---- @param opts table { url: string, session_id: string, token: string, name: string, bridge: string|nil, _reconnect: boolean|nil }
+--- @param opts table { url: string, session_id: string, token: string, name: string, bridge: string|nil, owner_key: string|nil, _reconnect: boolean|nil }
 function M.join(opts)
   if state.bridge_job then
     vim.notify("remora: already connected. Use :RemoraLeave first.", vim.log.levels.WARN)
@@ -750,6 +751,7 @@ function M.join(opts)
   state.token = opts.token
   state.session_id = opts.session_id
   state.bridge_path = opts.bridge or "remora-bridge"
+  state.owner_key = opts.owner_key
 
   local ws_url = string.format(
     "%s/sessions/%s?token=%s&name=%s",
@@ -758,6 +760,10 @@ function M.join(opts)
     opts.token,
     state.name
   )
+  -- Append owner_key if provided
+  if opts.owner_key and opts.owner_key ~= "" then
+    ws_url = ws_url .. "&owner_key=" .. opts.owner_key
+  end
 
   -- Only create layout on first join, not on reconnects
   if not opts._reconnect then
@@ -907,8 +913,12 @@ function M.create_session(url, token, repos, description)
           append_log("-- session created but no id returned --", "RemoraError")
           return
         end
+        local ok_key = result.owner_key
         append_log("-- session created: " .. tostring(new_id) .. " --", "RemoraSystem")
-        -- Auto-join the new session
+        if ok_key then
+          append_log("-- owner key: " .. ok_key .. " (use :RemoraOwnerKey to show again) --", "RemoraSystem")
+        end
+        -- Auto-join the new session with owner_key
         if state.bridge_job then
           M.leave()
         end
@@ -919,6 +929,7 @@ function M.create_session(url, token, repos, description)
             token = token,
             name = state.name,
             bridge = state.bridge_path,
+            owner_key = ok_key,
           })
         end, 200)
       end)
@@ -969,6 +980,15 @@ function M.setup(opts)
 
   vim.api.nvim_create_user_command("RemoraLeave", function()
     M.leave()
+  end, {})
+
+  vim.api.nvim_create_user_command("RemoraOwnerKey", function()
+    if state.owner_key then
+      vim.fn.setreg("+", state.owner_key)
+      vim.notify("remora: owner key copied to clipboard: " .. state.owner_key, vim.log.levels.INFO)
+    else
+      vim.notify("remora: no owner key (you did not create this session, or no key was returned)", vim.log.levels.WARN)
+    end
   end, {})
 
   vim.api.nvim_create_user_command("RemoraSend", function(cmd)

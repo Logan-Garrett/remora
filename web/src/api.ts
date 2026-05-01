@@ -57,11 +57,28 @@ export async function deleteSession(
     throw new Error(`Server error: ${resp.status}`);
 }
 
+const OWNER_KEY_PREFIX = "remora_owner_key_";
+
+/** Store an owner_key for a session (called after creating a session). */
+export function storeOwnerKey(sessionId: string, ownerKey: string): void {
+  sessionStorage.setItem(`${OWNER_KEY_PREFIX}${sessionId}`, ownerKey);
+}
+
+/** Retrieve a stored owner_key for a session, if any. */
+export function getOwnerKey(sessionId: string): string | null {
+  return sessionStorage.getItem(`${OWNER_KEY_PREFIX}${sessionId}`);
+}
+
 export function buildWsUrl(config: ConnectionConfig, sessionId: string): string {
   const wsBase = config.url.replace(/^http/, "ws");
   const params = new URLSearchParams({
     token: config.token,
     name: config.name,
   });
+  // Attach owner_key if we have one for this session
+  const ownerKey = getOwnerKey(sessionId);
+  if (ownerKey) {
+    params.set("owner_key", ownerKey);
+  }
   return `${wsBase}/sessions/${sessionId}?${params}`;
 }

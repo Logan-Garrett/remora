@@ -622,7 +622,7 @@ async fn handle_kick(
 async fn handle_session_info(
     state: &AppState,
     session_id: Uuid,
-    _author: &str,
+    author: &str,
 ) -> anyhow::Result<()> {
     let row = state.db.get_session_info(session_id).await?;
 
@@ -633,7 +633,7 @@ async fn handle_session_info(
 
             let repo_names = state.db.list_repo_names(session_id).await?;
 
-            format!(
+            let mut info = format!(
                 "Session: {session_id}\n\
                  Description: {desc}\n\
                  Created: {created}\n\
@@ -651,7 +651,21 @@ async fn handle_session_info(
                 } else {
                     participants.join(", ")
                 }
-            )
+            );
+
+            // Show owner_key only to the session owner
+            let is_owner = state
+                .get_session_owner(session_id)
+                .await
+                .map(|o| o == author)
+                .unwrap_or(false);
+            if is_owner {
+                if let Ok(Some(key)) = state.db.get_owner_key(session_id).await {
+                    info.push_str(&format!("\nOwner key: {key}"));
+                }
+            }
+
+            info
         }
         None => "Session not found.".to_string(),
     };
