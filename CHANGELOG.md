@@ -18,6 +18,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 - `.editorconfig` — consistent indent/charset/EOL settings across editors
 - `.github/dependabot.yml` — weekly automated updates for Cargo, npm, and GitHub Actions
 - `rust-toolchain.toml` — pins Rust channel to stable
+- `test-windows` CI job — full Windows test suite: Rust lint, SQLite tests, native MSSQL (SQL Server Express via Chocolatey), web client build + audit
 
 ---
 

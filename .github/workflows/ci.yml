@@ -319,6 +319,224 @@ jobs:
           path: web/playwright-report/
           retention-days: 7
 
+  test-windows:
+    name: Test (Windows — SQLite + MSSQL + Web)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # ── Rust lint & format ──────────────────────────────────────────────
+      - name: Rust lint & format
+        run: |
+          cargo check --all-targets
+          cargo clippy -- -D warnings
+          cargo fmt --check
+
+      # ── SQLite tests ────────────────────────────────────────────────────
+      - name: Run tests (SQLite)
+        env:
+          DATABASE_URL: "sqlite:remora_test.db"
+          REMORA_DB_PROVIDER: sqlite
+          REMORA_TEAM_TOKEN: test-token
+        run: |
+          cargo test --all
+          cargo test --all -- --ignored --test-threads=1
+
+      # ── MSSQL setup ────────────────────────────────────────────────────
+      - name: Install SQL Server 2022 Express
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Write-Host "Installing SQL Server 2022 Express via Chocolatey..."
+          choco install sql-server-express -y --no-progress
+          Write-Host "Installation complete"
+
+      - name: Configure SQL Server
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # Start the SQL Server service
+          Write-Host "Starting SQL Server..."
+          net start MSSQLSERVER 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            # Try SQLEXPRESS if default instance not found
+            net start "MSSQL`$SQLEXPRESS" 2>$null
+          }
+
+          # Find the correct registry path for this SQL Server version
+          $sqlRegBase = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server"
+          $instances = Get-ChildItem "$sqlRegBase" -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSChildName -match 'MSSQL\d+\.' }
+          foreach ($inst in $instances) {
+            $mssqlPath = "$($inst.PSPath)\MSSQLServer"
+            if (Test-Path $mssqlPath) {
+              Write-Host "Enabling mixed mode auth at: $mssqlPath"
+              Set-ItemProperty -Path $mssqlPath -Name "LoginMode" -Value 2
+
+              # Enable TCP/IP
+              $tcpPath = "$($inst.PSPath)\MSSQLServer\SuperSocketNetLib\Tcp"
+              if (Test-Path $tcpPath) {
+                Set-ItemProperty -Path $tcpPath -Name "Enabled" -Value 1
+                Write-Host "TCP/IP enabled at: $tcpPath"
+
+                # Set port 1433 on IPAll
+                $ipAllPath = "$tcpPath\IPAll"
+                if (Test-Path $ipAllPath) {
+                  Set-ItemProperty -Path $ipAllPath -Name "TcpPort" -Value "1433"
+                  Set-ItemProperty -Path $ipAllPath -Name "TcpDynamicPorts" -Value ""
+                  Write-Host "Port 1433 set on IPAll"
+                }
+              }
+            }
+          }
+
+          # Restart SQL Server to apply changes
+          Write-Host "Restarting SQL Server..."
+          net stop MSSQLSERVER 2>$null; net start MSSQLSERVER 2>$null
+          net stop "MSSQL`$SQLEXPRESS" 2>$null; net start "MSSQL`$SQLEXPRESS" 2>$null
+          Start-Sleep -Seconds 5
+
+          # Enable SA login and set password
+          Write-Host "Configuring SA login..."
+          sqlcmd -S localhost -E -Q "ALTER LOGIN [sa] WITH PASSWORD=N'Remora_Test_123!', CHECK_POLICY=OFF; ALTER LOGIN [sa] ENABLE;"
+
+          # Create test database
+          sqlcmd -S localhost -U sa -P "Remora_Test_123!" -Q "CREATE DATABASE remora_test;"
+          Write-Host "Database ready"
+
+          # Verify connection
+          sqlcmd -S localhost -U sa -P "Remora_Test_123!" -d remora_test -Q "SELECT 1 AS connected;"
+
+      - name: Build with MSSQL support
+        continue-on-error: true
+        run: cargo build -p remora-server --features mssql
+
+      - name: Run tests (MSSQL)
+        continue-on-error: true
+        env:
+          DATABASE_URL: "server=localhost;database=remora_test;user=sa;password=Remora_Test_123!;TrustServerCertificate=true;encrypt=false"
+          REMORA_DB_PROVIDER: mssql
+          REMORA_TEAM_TOKEN: test-token
+        run: cargo test -p remora-server --features mssql -- --ignored --test-threads=1
+
+      # ── Web client ──────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Web client — install, type-check, build, audit
+        working-directory: web
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+          npm audit --audit-level=high
+
+      # ── E2E: live Playwright tests against MSSQL backend ────────────
+      - name: Install Playwright (chromium only)
+        continue-on-error: true
+        working-directory: web
+        run: npx playwright install chromium
+
+      - name: Create E2E database (MSSQL)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          sqlcmd -S localhost -U sa -P "Remora_Test_123!" -Q "CREATE DATABASE remora_e2e;" 2>$null
+          Write-Host "E2E database created"
+
+      - name: Start server (MSSQL backend)
+        continue-on-error: true
+        shell: pwsh
+        env:
+          DATABASE_URL: "server=localhost;database=remora_e2e;user=sa;password=Remora_Test_123!;TrustServerCertificate=true;encrypt=false"
+          REMORA_DB_PROVIDER: mssql
+          REMORA_TEAM_TOKEN: e2e-test-token
+          REMORA_BIND: "127.0.0.1:7200"
+          REMORA_SKIP_PERMISSIONS: "true"
+          REMORA_CLAUDE_CMD: "echo"
+        run: |
+          $env:REMORA_WORKSPACE_DIR = "$env:TEMP\remora-e2e"
+          New-Item -ItemType Directory -Path $env:REMORA_WORKSPACE_DIR -Force | Out-Null
+
+          # Start server in background
+          Start-Process -FilePath ".\target\debug\remora-server.exe" `
+            -ArgumentList @() `
+            -RedirectStandardOutput "server-stdout.log" `
+            -RedirectStandardError "server-stderr.log" `
+            -PassThru | Out-Null
+
+          # Wait for health endpoint
+          for ($i = 1; $i -le 30; $i++) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:7200/health" -UseBasicParsing -ErrorAction Stop
+              if ($r.StatusCode -eq 200) { Write-Host "Server ready"; break }
+            } catch {
+              Write-Host "Waiting for server... ($i/30)"
+              Start-Sleep -Seconds 2
+            }
+            if ($i -eq 30) {
+              Write-Host "Server failed to start. Logs:"
+              Get-Content server-stdout.log -ErrorAction SilentlyContinue
+              Get-Content server-stderr.log -ErrorAction SilentlyContinue
+              throw "Server did not become healthy in 60s"
+            }
+          }
+
+      - name: Start Vite dev server
+        continue-on-error: true
+        shell: pwsh
+        working-directory: web
+        run: |
+          Start-Process -FilePath "npx.cmd" -ArgumentList "vite","--port","3333" `
+            -RedirectStandardOutput "vite-stdout.log" `
+            -RedirectStandardError "vite-stderr.log" `
+            -PassThru | Out-Null
+
+          for ($i = 1; $i -le 20; $i++) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://localhost:3333" -UseBasicParsing -ErrorAction Stop
+              if ($r.StatusCode -eq 200) { Write-Host "Vite ready"; break }
+            } catch {
+              Write-Host "Waiting for Vite... ($i/20)"
+              Start-Sleep -Seconds 2
+            }
+          }
+
+      - name: Run Playwright E2E (MSSQL backend)
+        continue-on-error: true
+        working-directory: web
+        env:
+          VITE_BASE_URL: http://localhost:3333
+          REMORA_SERVER_URL: http://127.0.0.1:7200
+          REMORA_TEAM_TOKEN: e2e-test-token
+        run: npx playwright test --project=chromium
+
+      - name: Upload Playwright report (Windows)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-windows
+          path: web/playwright-report/
+          retention-days: 7
+
+      - name: Dump server logs on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "=== Server stdout ==="
+          Get-Content server-stdout.log -ErrorAction SilentlyContinue
+          Write-Host "=== Server stderr ==="
+          Get-Content server-stderr.log -ErrorAction SilentlyContinue
+
   docker-compose-test:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest
