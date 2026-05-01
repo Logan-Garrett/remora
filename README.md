@@ -294,6 +294,10 @@ All endpoints require `Authorization: Bearer <token>` header (or `token` query p
 - **WebSocket token in query string**: The team token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
 - **Session-scoped authorization**: Currently, knowing the team token grants access to all sessions. Per-session tokens are not yet implemented. Treat the team token as a shared secret for your team.
 
+### Trust model
+
+By default, all chat messages are untrusted and wrapped in `<untrusted_content>` tags when sent to Claude. The session owner (the first participant to join) can run `/trust <name>` to mark a participant as trusted, allowing their messages to reach Claude as plain instructions. Display names are unique per session -- duplicate names are rejected at connect time. See [SECURITY.md](SECURITY.md) for details and known limitations.
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for the full plan. Short version:

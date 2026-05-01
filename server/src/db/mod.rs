@@ -111,6 +111,11 @@ pub trait Database: Send + Sync + 'static {
         domain: &str,
     ) -> anyhow::Result<bool>;
 
+    // -- trusted participants --
+    async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
+    async fn untrust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
+    async fn list_trusted_participants(&self, session_id: Uuid) -> anyhow::Result<Vec<String>>;
+
     // -- pending approvals --
     async fn create_pending_approval(
         &self,
@@ -492,6 +497,33 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.is_domain_session_allowed(session_id, domain).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.is_domain_session_allowed(session_id, domain).await,
+        }
+    }
+
+    async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.trust_participant(session_id, name).await,
+            Self::Sqlite(db) => db.trust_participant(session_id, name).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.trust_participant(session_id, name).await,
+        }
+    }
+
+    async fn untrust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.untrust_participant(session_id, name).await,
+            Self::Sqlite(db) => db.untrust_participant(session_id, name).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.untrust_participant(session_id, name).await,
+        }
+    }
+
+    async fn list_trusted_participants(&self, session_id: Uuid) -> anyhow::Result<Vec<String>> {
+        match self {
+            Self::Postgres(db) => db.list_trusted_participants(session_id).await,
+            Self::Sqlite(db) => db.list_trusted_participants(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_trusted_participants(session_id).await,
         }
     }
 

@@ -91,6 +91,8 @@ pub struct AppState {
     pub subscribers: RwLock<HashMap<Uuid, Vec<ConnectionInfo>>>,
     /// session_id -> set of connected participant names
     pub participants: RwLock<HashMap<Uuid, HashSet<String>>>,
+    /// session_id -> display name of the session owner (first participant to join)
+    pub session_owners: RwLock<HashMap<Uuid, String>>,
 }
 
 impl AppState {
@@ -101,6 +103,7 @@ impl AppState {
             config,
             subscribers: RwLock::new(HashMap::new()),
             participants: RwLock::new(HashMap::new()),
+            session_owners: RwLock::new(HashMap::new()),
         }
     }
 
@@ -156,6 +159,34 @@ impl AppState {
                 parts.remove(&session_id);
             }
         }
+    }
+
+    /// Check if a display name is already connected to a session.
+    pub async fn is_participant_connected(&self, session_id: Uuid, name: &str) -> bool {
+        let parts = self.participants.read().await;
+        parts
+            .get(&session_id)
+            .map(|s| s.contains(name))
+            .unwrap_or(false)
+    }
+
+    /// Set the session owner if one has not been set yet.
+    /// Returns `true` if the caller was set as owner, `false` if an owner already exists.
+    pub async fn set_session_owner(&self, session_id: Uuid, name: &str) -> bool {
+        use std::collections::hash_map::Entry;
+        let mut owners = self.session_owners.write().await;
+        if let Entry::Vacant(e) = owners.entry(session_id) {
+            e.insert(name.to_string());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the session owner's display name, if set.
+    pub async fn get_session_owner(&self, session_id: Uuid) -> Option<String> {
+        let owners = self.session_owners.read().await;
+        owners.get(&session_id).cloned()
     }
 
     pub async fn get_participants(&self, session_id: Uuid) -> Vec<String> {

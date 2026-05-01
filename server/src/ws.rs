@@ -38,8 +38,26 @@ pub async fn handle_socket(
         return;
     }
 
+    // Enforce unique display names per session
+    if state.is_participant_connected(session_id, &name).await {
+        let msg = ServerMsg::Error {
+            message: format!(
+                "Display name '{}' is already in use in this session. \
+                 Please reconnect with a different name.",
+                name
+            ),
+        };
+        let _ = sink
+            .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+            .await;
+        return;
+    }
+
     // Track participant
     state.participant_join(session_id, &name).await;
+
+    // If no owner yet for this session, the first participant becomes the owner
+    state.set_session_owner(session_id, &name).await;
 
     // Subscribe BEFORE inserting join event so we don't miss it in the live stream
     let (mut rx, cancel_token) = state.subscribe(session_id, &name).await;
