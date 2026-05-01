@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ## [Unreleased]
 
+---
+
+## [0.8.0] — 2026-04-30
+
 ### Added
 - Playwright E2E test suite — login, sessions, chat, and mobile flows
 - Mobile-responsive CSS (`@media max-width: 640px`) — full-width cards, 16px inputs (prevents iOS Safari zoom), 44px tap targets
@@ -24,6 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 - CI path filtering — skips pipeline for doc-only changes (`**.md`, `docs/**`, `assets/**`, `LICENSE`)
 - README: "Why Remora?" section (fish metaphor), hosted client link, latest release / stars / issues badges, architecture doc link
 - Web client documented as server-agnostic — one deployed copy connects to any Remora server URL
+
+### Changed
 - License changed from MIT to custom Source Available license — free for personal/internal/non-commercial use; commercial distribution requires a written revenue-sharing agreement
 
 ### Fixed
@@ -142,7 +148,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 - `REMORA_USE_SANDBOX`, `REMORA_SKIP_PERMISSIONS`, `REMORA_BIND`, and all other env vars
 - MIT license
 
-[Unreleased]: https://github.com/Logan-Garrett/remora/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Logan-Garrett/remora/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Logan-Garrett/remora/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Logan-Garrett/remora/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Logan-Garrett/remora/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Logan-Garrett/remora/compare/v0.5.0...v0.6.0
