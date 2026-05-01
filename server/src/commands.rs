@@ -52,6 +52,7 @@ pub async fn dispatch(
         ClientMsg::Who { .. } => handle_who(&state, session_id, author).await,
         ClientMsg::Kick { target, .. } => handle_kick(&state, session_id, author, &target).await,
         ClientMsg::SessionInfo { .. } => handle_session_info(&state, session_id, author).await,
+        ClientMsg::Help { .. } => handle_help(&state, session_id, author).await,
     };
 
     if let Err(e) = result {
@@ -644,6 +645,39 @@ async fn handle_session_info(
         "system",
         "system",
         serde_json::json!({"text": text}),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn handle_help(state: &AppState, session_id: Uuid, _author: &str) -> anyhow::Result<()> {
+    let help = "\
+Commands:
+  /run          — Run Claude (context since last run)
+  /run-all      — Run Claude (full context)
+  /clear        — Insert context boundary
+  /who          — List connected participants
+  /info         — Session info (id, tokens, repos, status)
+  /diff         — Show git diff for session repos
+  /add <path>   — Add a file to context
+  /fetch <url>  — Fetch a URL into context
+  /repo list    — List repos in this session
+  /repo add <url>    — Clone a git repo into the session
+  /repo remove <name> — Remove a repo
+  /allowlist         — Show allowed domains
+  /allowlist add <domain>    — Allow a domain for fetch
+  /allowlist remove <domain> — Remove from allowlist
+  /approve <domain>  — Approve a pending fetch request
+  /deny <domain>     — Deny a pending fetch request
+  /kick <name>       — Disconnect a participant
+  /help              — Show this help";
+
+    insert_event(
+        &state.db,
+        session_id,
+        "system",
+        "system",
+        serde_json::json!({"text": help}),
     )
     .await?;
     Ok(())

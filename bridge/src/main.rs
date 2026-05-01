@@ -12,6 +12,9 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::main]
 async fn main() {
+    // Install the default rustls crypto provider for TLS (wss://) connections
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let url = std::env::args()
         .nth(1)
         .expect("usage: remora-bridge <ws-url>");

@@ -1625,6 +1625,7 @@ dependencies = [
  "futures-util",
  "libc",
  "remora-common",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",

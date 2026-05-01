@@ -13,6 +13,9 @@ export function parseCommand(input: string, author: string): ClientMessage | nul
   const rest = parts.slice(1).join(" ");
 
   switch (cmd) {
+    case "help":
+    case "?":
+      return { type: "help", author };
     case "run":
       return { type: "run", author };
     case "run-all":
