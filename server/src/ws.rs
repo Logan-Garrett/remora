@@ -33,12 +33,12 @@ pub async fn handle_socket(
     state.participant_join(session_id, &name).await;
 
     // Subscribe BEFORE inserting join event so we don't miss it in the live stream
-    let (mut rx, cancel_token) = state.subscribe(session_id).await;
+    let (mut rx, cancel_token) = state.subscribe(session_id, &name).await;
 
-    // Backfill: send all existing events for this session
+    // Backfill: send the most recent events for this session (bounded by config limit)
     let backfill = state
         .db
-        .get_events_for_session(session_id)
+        .get_recent_events_for_session(session_id, state.config.backfill_limit)
         .await
         .unwrap_or_default();
 

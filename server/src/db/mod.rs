@@ -33,6 +33,8 @@ pub trait Database: Send + Sync + 'static {
 
     async fn session_exists(&self, session_id: Uuid) -> anyhow::Result<bool>;
 
+    async fn count_sessions(&self) -> anyhow::Result<i64>;
+
     async fn get_session_info(
         &self,
         session_id: Uuid,
@@ -54,6 +56,12 @@ pub trait Database: Send + Sync + 'static {
     async fn get_event_by_id(&self, event_id: i64) -> anyhow::Result<Option<Event>>;
 
     async fn get_events_for_session(&self, session_id: Uuid) -> anyhow::Result<Vec<Event>>;
+
+    async fn get_recent_events_for_session(
+        &self,
+        session_id: Uuid,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Event>>;
 
     async fn get_events_since(
         &self,
@@ -227,6 +235,15 @@ impl Database for DatabaseBackend {
         }
     }
 
+    async fn count_sessions(&self) -> anyhow::Result<i64> {
+        match self {
+            Self::Postgres(db) => db.count_sessions().await,
+            Self::Sqlite(db) => db.count_sessions().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.count_sessions().await,
+        }
+    }
+
     async fn get_session_info(
         &self,
         session_id: Uuid,
@@ -287,6 +304,19 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.get_events_for_session(session_id).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.get_events_for_session(session_id).await,
+        }
+    }
+
+    async fn get_recent_events_for_session(
+        &self,
+        session_id: Uuid,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Event>> {
+        match self {
+            Self::Postgres(db) => db.get_recent_events_for_session(session_id, limit).await,
+            Self::Sqlite(db) => db.get_recent_events_for_session(session_id, limit).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_recent_events_for_session(session_id, limit).await,
         }
     }
 

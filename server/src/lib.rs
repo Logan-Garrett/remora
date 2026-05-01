@@ -25,6 +25,7 @@ use db::Database;
 use remora_common::SessionInfo;
 use serde::Deserialize;
 use std::sync::Arc;
+use tower::limit::ConcurrencyLimitLayer;
 use uuid::Uuid;
 
 use state::AppState;
@@ -63,6 +64,29 @@ async fn create_session(
     };
     if !check_token(&state, token) {
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    }
+
+    // Enforce max sessions limit
+    match state.db.count_sessions().await {
+        Ok(count) if count >= state.config.max_sessions as i64 => {
+            return (StatusCode::TOO_MANY_REQUESTS, "session limit reached").into_response();
+        }
+        Err(e) => {
+            tracing::error!("count sessions: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        _ => {}
+    }
+
+    // Validate git URL schemes (reject file://, ftp://, bare paths)
+    for git_url in &body.repos {
+        if !is_safe_git_url(git_url) {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("rejected git URL: {git_url} (only https://, ssh://, and git:// schemes are allowed)"),
+            )
+                .into_response();
+        }
     }
 
     let desc = body.description.unwrap_or_default();
@@ -239,6 +263,21 @@ async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
+/// Validate that a git URL uses a safe scheme.
+/// Only `https://`, `ssh://`, `git://`, and SSH-style `user@host:path` are allowed.
+/// Rejects `file://`, `ftp://`, and absolute/relative bare paths.
+pub fn is_safe_git_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    if lower.starts_with("https://") || lower.starts_with("ssh://") || lower.starts_with("git://") {
+        return true;
+    }
+    // SSH-style URLs like git@github.com:user/repo.git
+    if url.contains('@') && url.contains(':') && !lower.starts_with('/') {
+        return true;
+    }
+    false
+}
+
 /// Build the axum `Router` with the given shared state.
 /// Extracted so that integration tests can spin up the server easily.
 pub fn build_router(shared: Arc<AppState>) -> Router {
@@ -248,5 +287,6 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", get(ws_upgrade))
         .route("/sessions/:id", delete(delete_session))
+        .layer(ConcurrencyLimitLayer::new(100))
         .with_state(shared)
 }

@@ -37,7 +37,9 @@ pub async fn check_domain_allowed(
     Ok(DomainStatus::NeedsApproval)
 }
 
-/// Fetch a URL and return the body as a string, truncated to 100KB.
+/// Fetch a URL and return the body as a string, streaming up to 100KB.
+/// Uses chunked reading to avoid downloading the entire response body
+/// into memory before truncating.
 pub async fn fetch_url(url: &str) -> anyhow::Result<String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -49,16 +51,30 @@ pub async fn fetch_url(url: &str) -> anyhow::Result<String> {
         anyhow::bail!("HTTP {}", resp.status());
     }
 
-    let bytes = resp.bytes().await?;
-    let text = if bytes.len() > MAX_FETCH_BYTES {
-        let truncated = &bytes[..MAX_FETCH_BYTES];
-        let s = String::from_utf8_lossy(truncated).to_string();
-        format!("{s}\n\n[truncated at {MAX_FETCH_BYTES} bytes]")
-    } else {
-        String::from_utf8_lossy(&bytes).to_string()
-    };
+    let mut buf = Vec::with_capacity(MAX_FETCH_BYTES);
+    let mut truncated = false;
+    let mut stream = resp;
 
-    Ok(text)
+    while let Some(chunk) = stream.chunk().await? {
+        let remaining = MAX_FETCH_BYTES.saturating_sub(buf.len());
+        if remaining == 0 {
+            truncated = true;
+            break;
+        }
+        if chunk.len() > remaining {
+            buf.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+        buf.extend_from_slice(&chunk);
+    }
+
+    let text = String::from_utf8_lossy(&buf).to_string();
+    if truncated {
+        Ok(format!("{text}\n\n[truncated at {MAX_FETCH_BYTES} bytes]"))
+    } else {
+        Ok(text)
+    }
 }
 
 /// Create a pending approval request for a domain.

@@ -319,6 +319,19 @@ async fn handle_repo_add(
     author: &str,
     git_url: &str,
 ) -> anyhow::Result<()> {
+    // Validate git URL scheme (SSRF prevention)
+    if !crate::is_safe_git_url(git_url) {
+        insert_event(
+            &state.db,
+            session_id,
+            "system",
+            "system",
+            serde_json::json!({"text": format!("Rejected git URL: {git_url} (only https://, ssh://, and git:// schemes are allowed)")}),
+        )
+        .await?;
+        return Ok(());
+    }
+
     // Extract repo name from URL
     let name = git_url
         .rsplit('/')

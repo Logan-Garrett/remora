@@ -118,6 +118,13 @@ impl Database for SqliteDb {
         Ok(row.0 > 0)
     }
 
+    async fn count_sessions(&self) -> anyhow::Result<i64> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
     async fn get_session_info(
         &self,
         session_id: Uuid,
@@ -227,6 +234,42 @@ impl Database for SqliteDb {
              FROM events WHERE session_id = ? ORDER BY id",
         )
         .bind(&sid_str)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|(id, sid, ts, author, kind, payload_str)| {
+                let session_id = sid.parse::<Uuid>()?;
+                let timestamp = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                let payload: Value = serde_json::from_str(&payload_str)?;
+                Ok(Event {
+                    id,
+                    session_id,
+                    timestamp,
+                    author,
+                    kind,
+                    payload,
+                })
+            })
+            .collect()
+    }
+
+    async fn get_recent_events_for_session(
+        &self,
+        session_id: Uuid,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Event>> {
+        let sid_str = session_id.to_string();
+        let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, String, String)>(
+            "SELECT id, session_id, timestamp, author, kind, payload \
+             FROM (SELECT id, session_id, timestamp, author, kind, payload \
+                   FROM events WHERE session_id = ? ORDER BY id DESC LIMIT ?) \
+             ORDER BY id",
+        )
+        .bind(&sid_str)
+        .bind(limit)
         .fetch_all(&self.pool)
         .await?;
 
