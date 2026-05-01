@@ -1,16 +1,18 @@
 # Remora — docker-compose quick-start
 #
+# Works on macOS, Linux, and Windows (Docker Desktop).
+#
 # Requirements:
 #   - Docker + Compose v2
-#   - Claude CLI installed on the host (npm install -g @anthropic-ai/claude-code && claude login)
+#   - Claude CLI authenticated on the host (npm install -g @anthropic-ai/claude-code && claude login)
 #   - Web client built: cd web && npm install && npm run build
 #
 # Quick start:
 #   REMORA_TEAM_TOKEN=yourtoken docker compose up -d
 #
-# The server mounts your host's ~/.claude directory so it can invoke the
-# Claude CLI inside the container. If you haven't logged in on the host,
-# run `claude login` first.
+# Claude CLI is installed inside the container image. Your host's ~/.claude
+# directory is mounted read-only so the container can use your auth credentials.
+# If you haven't logged in on the host, run `claude login` first.
 #
 # To use Docker sandbox isolation per session (recommended for production):
 #   REMORA_USE_SANDBOX=true REMORA_TEAM_TOKEN=yourtoken docker compose up -d
@@ -52,25 +54,13 @@ services:
       REMORA_WORKSPACE_DIR: /var/lib/remora/workspaces
       REMORA_SKIP_PERMISSIONS: ${REMORA_SKIP_PERMISSIONS:-true}
       REMORA_USE_SANDBOX: ${REMORA_USE_SANDBOX:-false}
-      # Path to the Claude CLI binary inside the container.
-      # The host's ~/.claude is mounted read-only so authentication is shared.
       REMORA_CLAUDE_CMD: ${REMORA_CLAUDE_CMD:-claude}
     ports:
       - "7200:7200"
     volumes:
       - remora_workspaces:/var/lib/remora/workspaces
-      # Share host Claude auth with the container
+      # Share host Claude auth with the container (works on macOS, Linux, Windows)
       - ${HOME}/.claude:/home/remora/.claude:ro
-      # Mount the host claude binary so the container can invoke it.
-      # Find the path with: which claude
-      # Override via: CLAUDE_BIN=/path/to/claude docker compose up -d
-      - ${CLAUDE_BIN:-/usr/local/bin/claude}:/usr/local/bin/claude:ro
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7200/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      start_period: 20s
-      retries: 6
 
   web:
     image: nginx:alpine

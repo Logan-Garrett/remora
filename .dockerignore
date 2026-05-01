@@ -1,0 +1,16 @@
+target/
+web/
+plugin/
+docs/
+assets/
+.git/
+.github/
+.claude/
+*.md
+LICENSE
+Justfile
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
