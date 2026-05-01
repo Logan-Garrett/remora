@@ -319,6 +319,127 @@ jobs:
           path: web/playwright-report/
           retention-days: 7
 
+  test-windows:
+    name: Test (Windows — SQLite + MSSQL + Web)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # ── Rust lint & format ──────────────────────────────────────────────
+      - name: Rust lint & format
+        run: |
+          cargo check --all-targets
+          cargo clippy -- -D warnings
+          cargo fmt --check
+
+      # ── SQLite tests ────────────────────────────────────────────────────
+      - name: Run tests (SQLite)
+        env:
+          DATABASE_URL: "sqlite:remora_test.db"
+          REMORA_DB_PROVIDER: sqlite
+          REMORA_TEAM_TOKEN: test-token
+        run: |
+          cargo test --all
+          cargo test --all -- --ignored --test-threads=1
+
+      # ── MSSQL setup ────────────────────────────────────────────────────
+      - name: Install SQL Server 2022 Express
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Write-Host "Installing SQL Server 2022 Express via Chocolatey..."
+          choco install sql-server-express -y --no-progress
+          Write-Host "Installation complete"
+
+      - name: Configure SQL Server
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # Start the SQL Server service
+          Write-Host "Starting SQL Server..."
+          net start MSSQLSERVER 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            # Try SQLEXPRESS if default instance not found
+            net start "MSSQL`$SQLEXPRESS" 2>$null
+          }
+
+          # Find the correct registry path for this SQL Server version
+          $sqlRegBase = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server"
+          $instances = Get-ChildItem "$sqlRegBase" -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSChildName -match 'MSSQL\d+\.' }
+          foreach ($inst in $instances) {
+            $mssqlPath = "$($inst.PSPath)\MSSQLServer"
+            if (Test-Path $mssqlPath) {
+              Write-Host "Enabling mixed mode auth at: $mssqlPath"
+              Set-ItemProperty -Path $mssqlPath -Name "LoginMode" -Value 2
+
+              # Enable TCP/IP
+              $tcpPath = "$($inst.PSPath)\MSSQLServer\SuperSocketNetLib\Tcp"
+              if (Test-Path $tcpPath) {
+                Set-ItemProperty -Path $tcpPath -Name "Enabled" -Value 1
+                Write-Host "TCP/IP enabled at: $tcpPath"
+
+                # Set port 1433 on IPAll
+                $ipAllPath = "$tcpPath\IPAll"
+                if (Test-Path $ipAllPath) {
+                  Set-ItemProperty -Path $ipAllPath -Name "TcpPort" -Value "1433"
+                  Set-ItemProperty -Path $ipAllPath -Name "TcpDynamicPorts" -Value ""
+                  Write-Host "Port 1433 set on IPAll"
+                }
+              }
+            }
+          }
+
+          # Restart SQL Server to apply changes
+          Write-Host "Restarting SQL Server..."
+          net stop MSSQLSERVER 2>$null; net start MSSQLSERVER 2>$null
+          net stop "MSSQL`$SQLEXPRESS" 2>$null; net start "MSSQL`$SQLEXPRESS" 2>$null
+          Start-Sleep -Seconds 5
+
+          # Enable SA login and set password
+          Write-Host "Configuring SA login..."
+          sqlcmd -S localhost -E -Q "ALTER LOGIN [sa] WITH PASSWORD=N'Remora_Test_123!', CHECK_POLICY=OFF; ALTER LOGIN [sa] ENABLE;"
+
+          # Create test database
+          sqlcmd -S localhost -U sa -P "Remora_Test_123!" -Q "CREATE DATABASE remora_test;"
+          Write-Host "Database ready"
+
+          # Verify connection
+          sqlcmd -S localhost -U sa -P "Remora_Test_123!" -d remora_test -Q "SELECT 1 AS connected;"
+
+      - name: Build with MSSQL support
+        continue-on-error: true
+        run: cargo build -p remora-server --features mssql
+
+      - name: Run tests (MSSQL)
+        continue-on-error: true
+        env:
+          DATABASE_URL: "server=localhost;database=remora_test;user=sa;password=Remora_Test_123!;TrustServerCertificate=true;encrypt=false"
+          REMORA_DB_PROVIDER: mssql
+          REMORA_TEAM_TOKEN: test-token
+        run: cargo test -p remora-server --features mssql -- --ignored --test-threads=1
+
+      # ── Web client ──────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Web client — install, type-check, build, audit
+        working-directory: web
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+          npm audit --audit-level=high
+
   docker-compose-test:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest
