@@ -94,6 +94,13 @@ AppState.subscribers      — fan-out to all connected WebSocket clients for tha
 Client                    — renders ServerMsg::Event
 ```
 
+### Web Client is Server-Agnostic
+
+The web client is a static site with no hardcoded server URL. The URL, token, and display name are entered at login and stored in `sessionStorage`. This means:
+- One deployed copy of the web client can connect to **any** Remora server
+- Users don't need to deploy the frontend to use it against their own server
+- The frontend and backend are completely independent deployments
+
 ### Auth
 
 Single shared `REMORA_TEAM_TOKEN`. Every REST request requires `Authorization: Bearer <token>`. WebSocket upgrade passes token as `?token=` query param (browser WebSocket API cannot set headers). The `/health` endpoint is unauthenticated.

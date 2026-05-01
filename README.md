@@ -56,6 +56,7 @@ Everything is persisted in the database. Reconnect anytime and get the full hist
 
 ![Architecture](assets/architecture.svg)
 
+- **Web Client** -- Static TypeScript/Vite app. Server-agnostic: you enter the server URL, token, and display name at login. One hosted copy of the web client can connect to any Remora server — you don't need to deploy the frontend yourself.
 - **Neovim Plugin** -- Lua plugin with Telescope integration. Communicates via a small Rust bridge binary over WebSocket.
 - **Server** -- Rust (axum). Handles auth, WebSocket connections, event fan-out. Stateless across restarts.
 - **Database** -- Postgres (default), SQLite, or MSSQL. Append-only event log, session metadata, allowlists, quotas.
@@ -176,7 +177,24 @@ Add to your Neovim config (lazy.nvim):
 | `token` | `$REMORA_TEAM_TOKEN` or `""` | Team token (falls back to env var) |
 | `name` | `vim.fn.hostname()` | Your display name |
 
-### 3. Cross-compile for ARM Linux (Raspberry Pi, etc.)
+### 3. Web Client
+
+The web client is a static site — it has no opinion about which server it connects to. The server URL, team token, and display name are entered at login time and stored in `sessionStorage` for the browser session.
+
+**You do not need to host the web client yourself.** You can use any publicly deployed copy of the web client and point it at your own server. Conversely, one hosted copy of the web client can be shared across multiple teams running different servers.
+
+To build and serve it yourself:
+
+```bash
+cd web && npm install && npm run build
+# Serve the dist/ folder with any static file server
+python3 -m http.server 3000 --directory dist/
+# or: nginx, caddy, serve, etc.
+```
+
+Open it in a browser, enter your server URL (e.g. `http://your-server:7200`), team token, and display name.
+
+### 4. Cross-compile for ARM Linux (Raspberry Pi, etc.)
 
 ```bash
 rustup target add aarch64-unknown-linux-gnu
