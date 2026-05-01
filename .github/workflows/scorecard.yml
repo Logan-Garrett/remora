@@ -7,14 +7,16 @@ on:
     # Run weekly on Sunday at 04:00 UTC
     - cron: "0 4 * * 0"
 
-permissions:
-  security-events: write
-  id-token: write
+# Top-level must be read-only — Scorecard webapp rejects global write
+permissions: read-all
 
 jobs:
   scorecard:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
