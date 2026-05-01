@@ -274,12 +274,14 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/sessions` | Create session `{description, repos: [url]}` |
+| `POST` | `/sessions` | Create session `{description, repos: [url]}` — response includes `owner_key` |
 | `GET` | `/sessions` | List sessions |
 | `DELETE` | `/sessions/:id` | Delete session + cleanup |
-| `GET` | `/sessions/:id` | WebSocket upgrade (query: `token`, `name`) |
+| `GET` | `/sessions/:id` | WebSocket upgrade (query: `token`, `name`, optional `owner_key`) |
 
 All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS).
+
+The `owner_key` returned by `POST /sessions` is a secret UUID that proves session ownership. Pass it as `owner_key=<key>` in the WebSocket query params to claim ownership (required for `/trust` and `/untrust` commands). Without it, the first participant to join becomes owner.
 
 ## Database Support
 

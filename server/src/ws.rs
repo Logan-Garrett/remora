@@ -12,6 +12,7 @@ pub async fn handle_socket(
     state: Arc<AppState>,
     session_id: Uuid,
     name: String,
+    owner_key: Option<String>,
     socket: WebSocket,
 ) {
     let (mut sink, mut stream) = socket.split();
@@ -38,8 +39,9 @@ pub async fn handle_socket(
         return;
     }
 
-    // Enforce unique display names per session
-    if state.is_participant_connected(session_id, &name).await {
+    // Atomically check uniqueness and join — prevents TOCTOU race between
+    // concurrent WebSocket handlers trying to claim the same display name.
+    if !state.try_participant_join(session_id, &name).await {
         let msg = ServerMsg::Error {
             message: format!(
                 "Display name '{}' is already in use in this session. \
@@ -53,10 +55,17 @@ pub async fn handle_socket(
         return;
     }
 
-    // Track participant
-    state.participant_join(session_id, &name).await;
-
-    // If no owner yet for this session, the first participant becomes the owner
+    // Determine session ownership:
+    // 1. If valid owner_key provided, force this participant as owner
+    // 2. Otherwise, first-joiner becomes owner (backward compatible)
+    if let Some(ref key) = owner_key {
+        let db_key = state.db.get_owner_key(session_id).await.unwrap_or(None);
+        if db_key.as_deref() == Some(key.as_str()) {
+            state.force_set_session_owner(session_id, &name).await;
+        }
+        // Invalid key: silently continue as regular participant
+    }
+    // Fallback: if no owner set yet, first joiner becomes owner
     state.set_session_owner(session_id, &name).await;
 
     // Subscribe BEFORE inserting join event so we don't miss it in the live stream

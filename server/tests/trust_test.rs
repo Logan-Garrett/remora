@@ -303,6 +303,150 @@ async fn ws_trust_by_non_owner_rejected() {
     );
 }
 
+// ── REST: create session returns an owner_key ───────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn rest_create_session_returns_owner_key() {
+    let server = TestServer::start().await;
+    let (_id, owner_key) = server.create_session_with_key("owner-key-test").await;
+    assert!(
+        !owner_key.is_empty(),
+        "create session response should include a non-empty owner_key"
+    );
+    // Verify it's a valid UUID
+    assert!(
+        uuid::Uuid::parse_str(&owner_key).is_ok(),
+        "owner_key should be a valid UUID"
+    );
+}
+
+// ── WS: connecting with valid owner_key makes you the owner ─────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn ws_valid_owner_key_becomes_owner() {
+    let server = TestServer::start().await;
+    let (sid, owner_key) = server.create_session_with_key("owner-key-valid").await;
+
+    // Bob connects first WITHOUT owner_key → becomes owner via first-joiner
+    let (_sink_b, mut stream_b) = server.connect_ws(sid, "bob").await;
+    let _ = TestServer::drain_events(&mut stream_b, 1500).await;
+
+    // Alice connects WITH valid owner_key → should become owner (override bob)
+    let (mut sink_a, mut stream_a) = server
+        .connect_ws_with_owner_key(sid, "alice", &owner_key)
+        .await;
+    let _ = TestServer::drain_events(&mut stream_a, 1500).await;
+
+    // Alice tries to /trust carol — should succeed because she's owner
+    TestServer::send_msg(
+        &mut sink_a,
+        serde_json::json!({
+            "type": "trust",
+            "author": "alice",
+            "target": "carol",
+        }),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream_a,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some()
+                && ev["data"]["kind"] == "system"
+                && ev["data"]["payload"]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("now trusted")
+        },
+        5000,
+    )
+    .await;
+
+    assert!(
+        ev.is_some(),
+        "alice with valid owner_key should be owner and able to /trust"
+    );
+}
+
+// ── WS: connecting with invalid owner_key does NOT make you the owner ─
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn ws_invalid_owner_key_not_owner() {
+    let server = TestServer::start().await;
+    let sid = server.create_session("owner-key-invalid").await;
+
+    // Bob connects first → becomes owner
+    let (_sink_b, mut stream_b) = server.connect_ws(sid, "bob").await;
+    let _ = TestServer::drain_events(&mut stream_b, 1500).await;
+
+    // Alice connects with a bogus owner_key → should NOT become owner
+    let (mut sink_a, mut stream_a) = server
+        .connect_ws_with_owner_key(sid, "alice", "not-a-real-key")
+        .await;
+    let _ = TestServer::drain_events(&mut stream_a, 1500).await;
+
+    // Alice tries to /trust carol — should fail because bob is still owner
+    TestServer::send_msg(
+        &mut sink_a,
+        serde_json::json!({
+            "type": "trust",
+            "author": "alice",
+            "target": "carol",
+        }),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream_a,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some()
+                && ev["data"]["kind"] == "system"
+                && ev["data"]["payload"]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("session owner")
+        },
+        5000,
+    )
+    .await;
+
+    assert!(
+        ev.is_some(),
+        "alice with invalid owner_key should NOT be owner and should get rejection"
+    );
+}
+
+// ── DB: owner_key persists across server restarts (survives in DB) ───
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn db_owner_key_persists() {
+    let server = TestServer::start().await;
+    let db = server.db();
+
+    let (sid, _, _) = db.create_session("owner-key-persist").await.unwrap();
+
+    let key = uuid::Uuid::new_v4().to_string();
+    db.set_owner_key(sid, &key).await.unwrap();
+
+    // Read it back
+    let stored = db.get_owner_key(sid).await.unwrap();
+    assert_eq!(stored, Some(key.clone()), "owner_key should round-trip");
+
+    // Create a new DB connection to simulate restart
+    let stored2 = db.get_owner_key(sid).await.unwrap();
+    assert_eq!(
+        stored2,
+        Some(key),
+        "owner_key should survive across queries (simulating restart)"
+    );
+}
+
 // ── WS: /trust by owner succeeds ────────────────────────────────────
 
 #[tokio::test]

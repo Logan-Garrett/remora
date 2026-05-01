@@ -79,4 +79,7 @@ pub struct SessionInfo {
     pub id: Uuid,
     pub description: String,
     pub created_at: DateTime<Utc>,
+    /// Only included in the create-session response; `None` in list responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_key: Option<String>,
 }

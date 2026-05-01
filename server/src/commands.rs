@@ -573,6 +573,10 @@ async fn handle_who(state: &AppState, session_id: Uuid, _author: &str) -> anyhow
         format!("Connected: {}", participants.join(", "))
     };
 
+    if let Some(owner) = state.get_session_owner(session_id).await {
+        text.push_str(&format!("\nOwner: {owner}"));
+    }
+
     let trusted = state
         .db
         .list_trusted_participants(session_id)
@@ -683,8 +687,8 @@ Commands:
   /approve <domain>  — Approve a pending fetch request
   /deny <domain>     — Deny a pending fetch request
   /kick <name>       — Disconnect a participant
-  /trust <name>      — Mark a participant as trusted (messages sent as instructions)
-  /untrust <name>    — Remove a participant from the trusted list
+  /trust <name>      — Mark a participant as trusted (owner only)
+  /untrust <name>    — Remove a participant from the trusted list (owner only)
   /help              — Show this help";
 
     insert_event(

@@ -111,6 +111,10 @@ pub trait Database: Send + Sync + 'static {
         domain: &str,
     ) -> anyhow::Result<bool>;
 
+    // -- owner key --
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()>;
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>>;
+
     // -- trusted participants --
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
     async fn untrust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
@@ -497,6 +501,24 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.is_domain_session_allowed(session_id, domain).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.is_domain_session_allowed(session_id, domain).await,
+        }
+    }
+
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.set_owner_key(session_id, key).await,
+            Self::Sqlite(db) => db.set_owner_key(session_id, key).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.set_owner_key(session_id, key).await,
+        }
+    }
+
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        match self {
+            Self::Postgres(db) => db.get_owner_key(session_id).await,
+            Self::Sqlite(db) => db.get_owner_key(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_owner_key(session_id).await,
         }
     }
 

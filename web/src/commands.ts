@@ -49,6 +49,12 @@ export function parseCommand(input: string, author: string): ClientMessage | nul
     case "kick":
       if (!rest) return { type: "chat", author, text: input };
       return { type: "kick", author, target: rest };
+    case "trust":
+      if (!rest) return { type: "chat", author, text: input };
+      return { type: "trust", author, target: rest };
+    case "untrust":
+      if (!rest) return { type: "chat", author, text: input };
+      return { type: "untrust", author, target: rest };
     default:
       return { type: "chat", author, text: input };
   }

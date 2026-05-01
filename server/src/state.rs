@@ -143,12 +143,18 @@ impl AppState {
         }
     }
 
-    pub async fn participant_join(&self, session_id: Uuid, name: &str) {
+    /// Attempt to join a session. Returns `false` if the name is already taken.
+    /// This combines the uniqueness check and insertion under a single write lock
+    /// to prevent TOCTOU races between concurrent WebSocket handlers.
+    pub async fn try_participant_join(&self, session_id: Uuid, name: &str) -> bool {
         let mut parts = self.participants.write().await;
-        parts
-            .entry(session_id)
-            .or_default()
-            .insert(name.to_string());
+        let set = parts.entry(session_id).or_default();
+        if set.contains(name) {
+            false
+        } else {
+            set.insert(name.to_string());
+            true
+        }
     }
 
     pub async fn participant_leave(&self, session_id: Uuid, name: &str) {
@@ -157,17 +163,13 @@ impl AppState {
             set.remove(name);
             if set.is_empty() {
                 parts.remove(&session_id);
+                // Clear ownership when the last participant leaves so the next
+                // person to join becomes the new owner.
+                drop(parts); // release participants lock before acquiring owners lock
+                let mut owners = self.session_owners.write().await;
+                owners.remove(&session_id);
             }
         }
-    }
-
-    /// Check if a display name is already connected to a session.
-    pub async fn is_participant_connected(&self, session_id: Uuid, name: &str) -> bool {
-        let parts = self.participants.read().await;
-        parts
-            .get(&session_id)
-            .map(|s| s.contains(name))
-            .unwrap_or(false)
     }
 
     /// Set the session owner if one has not been set yet.
@@ -183,10 +185,23 @@ impl AppState {
         }
     }
 
+    /// Forcefully set the session owner, overwriting any existing owner.
+    /// Used when a valid owner_key is provided on WebSocket connect.
+    pub async fn force_set_session_owner(&self, session_id: Uuid, name: &str) {
+        let mut owners = self.session_owners.write().await;
+        owners.insert(session_id, name.to_string());
+    }
+
     /// Get the session owner's display name, if set.
     pub async fn get_session_owner(&self, session_id: Uuid) -> Option<String> {
         let owners = self.session_owners.read().await;
         owners.get(&session_id).cloned()
+    }
+
+    /// Remove the session owner entry (e.g. on session delete).
+    pub async fn clear_session_owner(&self, session_id: Uuid) {
+        let mut owners = self.session_owners.write().await;
+        owners.remove(&session_id);
     }
 
     pub async fn get_participants(&self, session_id: Uuid) -> Vec<String> {

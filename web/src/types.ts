@@ -120,6 +120,18 @@ export interface ClientKick {
   target: string;
 }
 
+export interface ClientTrust {
+  type: "trust";
+  author: string;
+  target: string;
+}
+
+export interface ClientUntrust {
+  type: "untrust";
+  author: string;
+  target: string;
+}
+
 export type ClientMessage =
   | ClientHelp
   | ClientChat
@@ -137,7 +149,9 @@ export type ClientMessage =
   | ClientAllowlistAdd
   | ClientAllowlistRemove
   | ClientApprove
-  | ClientKick;
+  | ClientKick
+  | ClientTrust
+  | ClientUntrust;
 
 export interface ConnectionConfig {
   url: string;

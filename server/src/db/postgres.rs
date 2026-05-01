@@ -535,6 +535,26 @@ impl Database for PostgresDb {
         Ok(())
     }
 
+    // -- owner key --
+
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET owner_key = $1 WHERE id = $2")
+            .bind(key)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let row =
+            sqlx::query_scalar::<_, Option<String>>("SELECT owner_key FROM sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.flatten())
+    }
+
     // -- trusted participants --
 
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {

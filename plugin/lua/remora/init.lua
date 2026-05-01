@@ -248,6 +248,8 @@ local function handle_slash_command(text)
       "/approve <domain> Approve pending fetch",
       "/deny <domain>    Deny pending fetch",
       "/kick <name>      Kick a participant",
+      "/trust <name>     Trust a participant (owner only)",
+      "/untrust <name>   Untrust a participant (owner only)",
       "/join <id>        Switch to another session",
       "/sessions         List all sessions",
       "/help             Show this list",
@@ -357,6 +359,18 @@ local function handle_slash_command(text)
   local kick_target = trimmed:match("^/kick%s+(.+)$")
   if kick_target then
     bridge_send({ type = "kick", author = author, target = kick_target })
+    return true
+  end
+
+  local trust_target = trimmed:match("^/trust%s+(.+)$")
+  if trust_target then
+    bridge_send({ type = "trust", author = author, target = trust_target })
+    return true
+  end
+
+  local untrust_target = trimmed:match("^/untrust%s+(.+)$")
+  if untrust_target then
+    bridge_send({ type = "untrust", author = author, target = untrust_target })
     return true
   end
 

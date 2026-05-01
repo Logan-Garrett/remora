@@ -670,6 +670,28 @@ impl Database for SqliteDb {
         Ok(())
     }
 
+    // -- owner key --
+
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()> {
+        let sid_str = session_id.to_string();
+        sqlx::query("UPDATE sessions SET owner_key = ? WHERE id = ?")
+            .bind(key)
+            .bind(&sid_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let sid_str = session_id.to_string();
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT owner_key FROM sessions WHERE id = ?")
+                .bind(&sid_str)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.and_then(|(k,)| k))
+    }
+
     // -- trusted participants --
 
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {

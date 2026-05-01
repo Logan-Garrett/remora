@@ -193,6 +193,10 @@ impl Database for MssqlDb {
                 "20260501000001_trusted_participants.sql",
                 include_str!("../../../migrations/mssql/20260501000001_trusted_participants.sql"),
             ),
+            (
+                "20260501000002_owner_key.sql",
+                include_str!("../../../migrations/mssql/20260501000002_owner_key.sql"),
+            ),
         ];
 
         for (name, sql) in migration_files {
@@ -1044,6 +1048,34 @@ impl Database for MssqlDb {
         )
         .await?;
         Ok(())
+    }
+
+    // -- owner key --
+
+    async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute(
+            "UPDATE sessions SET owner_key = @P1 WHERE id = @P2",
+            &[&key, &tib_id],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn
+            .query("SELECT owner_key FROM sessions WHERE id = @P1", &[&tib_id])
+            .await?
+            .into_first_result()
+            .await?;
+        let key = rows
+            .first()
+            .and_then(|r| r.try_get::<&str, _>(0).ok().flatten())
+            .map(|s| s.to_string());
+        Ok(key)
     }
 
     // -- trusted participants --

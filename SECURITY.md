@@ -43,6 +43,15 @@ Remora implements a name-based trust system for controlling which participants' 
 
 - **Trust persists across reconnects.** The trusted list is stored in the database and survives server restarts. The session owner designation is in-memory only and resets when the server restarts (the first person to rejoin becomes the new owner).
 
+### Owner key
+
+When a session is created, the server generates a random `owner_key` (UUID) and stores it in the database. The creator receives this key in the REST response. To claim persistent ownership of a session, include `owner_key=<key>` in the WebSocket query parameters. This replaces the fragile "first to join is owner" logic with cryptographic proof stored in the DB:
+
+- Connecting with a **valid** `owner_key` makes you the session owner, overriding any existing in-memory owner.
+- Connecting with an **invalid** `owner_key` (or none at all) falls back to the previous first-joiner behavior.
+- The `owner_key` persists across server restarts since it is stored in the database.
+- The `owner_key` is only returned once (in the create-session response) and is never included in list responses. Treat it as a secret.
+
 ### Known limitation
 
 There is a brief window between a trusted participant disconnecting and reconnecting where their display name is available. During this window, an attacker who knows the name could theoretically connect with it and have their messages treated as trusted. This window is typically sub-second for reconnects, but it exists.

@@ -134,7 +134,7 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 
 ### In-Memory State
 
-`AppState` holds three `RwLock<HashMap>` — `subscribers` (WebSocket sender channels), `participants` (display names), and `session_owners` (first participant to join each session, used for `/trust` authorization). These are **process-local**. Multiple server instances work with Postgres (LISTEN/NOTIFY crosses processes) but `/who` will only see participants on the same instance. SQLite and MSSQL are single-instance only. The `session_owners` map is cleared when all participants leave a session, so the next person to join becomes the new owner.
+`AppState` holds three `RwLock<HashMap>` — `subscribers` (WebSocket sender channels), `participants` (display names), and `session_owners` (used for `/trust` authorization). These are **process-local**. Multiple server instances work with Postgres (LISTEN/NOTIFY crosses processes) but `/who` will only see participants on the same instance. SQLite and MSSQL are single-instance only. Session ownership can be claimed via `owner_key` (a UUID generated at session creation and stored in the DB). A client connecting with a valid `owner_key` in the WebSocket query params becomes the session owner, overriding any existing in-memory owner. Without an `owner_key`, the first participant to join becomes owner (backward compatible). The `session_owners` map is cleared when all participants leave a session.
 
 ---
 
