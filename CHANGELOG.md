@@ -8,17 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ## [Unreleased]
 
+---
+
+## [0.9.0] — 2026-05-01
+
 ### Added
-- `Dockerfile` + `docker-compose.yml` — one-command local stack (Postgres + server + nginx web client)
+- **Trusted participants** — `/trust <name>` and `/untrust <name>` commands; trusted users' messages reach Claude as plain instructions, untrusted messages are wrapped in `<untrusted_content>` tags
+- **Session ownership** — first participant to join becomes the session owner; only the owner can `/trust`, `/untrust`, and `/kick`
+- **Unique display names** — server rejects WebSocket connections if someone with the same name is already connected to the session
+- `Dockerfile` + `docker-compose.yml` — one-command local stack (Postgres + server + nginx web client, Claude CLI built in)
 - `scripts/compose-test.sh` — 13-point smoke test for the compose stack; used in CI and locally
 - `docker-compose-test` CI job — builds image and runs smoke test on every push
-- `release.yml` GitHub Actions workflow — publishes binaries (linux-amd64, linux-arm64, macos-arm64) + web client tarball on `v*` tag push
-- `SECURITY.md` — vulnerability reporting policy and known security limitations
+- `release.yml` GitHub Actions workflow — publishes binaries (linux-amd64, linux-arm64, macos-arm64) + web client tarball + Docker image to GHCR on `v*` tag push
+- `test-windows` CI job — full Windows test suite: Rust lint, SQLite tests, native MSSQL (SQL Server Express via Chocolatey), Playwright E2E on MSSQL, web client build + audit
+- `dependabot-automerge.yml` — auto-merge patch/minor dependency PRs that pass CI
+- `codeql.yml` — GitHub CodeQL SAST for TypeScript on push, PR, and weekly schedule
+- `scorecard.yml` — OpenSSF Scorecard security grading
+- `typos` CI job — spell-check source code and docs
+- `coverage` CI job — test coverage via cargo-llvm-cov → Codecov
+- `SECURITY.md` — vulnerability reporting policy, known limitations, trust model documentation
 - `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1
 - `.editorconfig` — consistent indent/charset/EOL settings across editors
 - `.github/dependabot.yml` — weekly automated updates for Cargo, npm, and GitHub Actions
 - `rust-toolchain.toml` — pins Rust channel to stable
-- `test-windows` CI job — full Windows test suite: Rust lint, SQLite tests, native MSSQL (SQL Server Express via Chocolatey), web client build + audit
+- Justfile rewrite — organized sections with `dev`, `web`, `up`/`down`, `e2e`, `compose-test`, `web-check` targets
+
+### Changed
+- Cargo.toml versions bumped from 0.1.0 to 0.9.0 (server, bridge, common)
+- web/package.json version bumped from 0.1.0 to 0.9.0
 
 ---
 
@@ -160,7 +177,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 - `REMORA_USE_SANDBOX`, `REMORA_SKIP_PERMISSIONS`, `REMORA_BIND`, and all other env vars
 - MIT license
 
-[Unreleased]: https://github.com/Logan-Garrett/remora/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Logan-Garrett/remora/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Logan-Garrett/remora/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Logan-Garrett/remora/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Logan-Garrett/remora/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Logan-Garrett/remora/compare/v0.6.0...v0.7.0
