@@ -55,6 +55,8 @@ pub enum ClientMsg {
     Kick { author: String, target: String },
     #[serde(rename = "session_info")]
     SessionInfo { author: String },
+    #[serde(rename = "help")]
+    Help { author: String },
 }
 
 /// Messages the server sends to the client over WebSocket.
