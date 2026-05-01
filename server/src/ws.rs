@@ -66,10 +66,14 @@ pub async fn handle_socket(
     )
     .await;
 
-    // Forward live events to the WS client, skipping anything already backfilled
+    // Forward live events to the WS client, skipping anything already backfilled.
+    // Sends a WebSocket ping every 30s to keep the connection alive through
+    // proxies/tunnels (e.g. Cloudflare) that drop idle connections.
     let ws_name = name.clone();
     let cancel = cancel_token.clone();
     let mut send_task = tokio::spawn(async move {
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        ping_interval.tick().await; // skip immediate first tick
         loop {
             tokio::select! {
                 maybe_event = rx.recv() => {
@@ -92,6 +96,11 @@ pub async fn handle_socket(
                     let msg = ServerMsg::Event { data: event };
                     let text = serde_json::to_string(&msg).unwrap();
                     if sink.send(Message::Text(text)).await.is_err() {
+                        break;
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if sink.send(Message::Ping(vec![])).await.is_err() {
                         break;
                     }
                 }

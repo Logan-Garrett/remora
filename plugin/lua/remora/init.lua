@@ -285,6 +285,11 @@ local function handle_slash_command(text)
     return true
   end
 
+  if trimmed == "/help" or trimmed == "/?" then
+    bridge_send({ type = "help", author = author })
+    return true
+  end
+
   if trimmed == "/allowlist" then
     bridge_send({ type = "allowlist", author = author })
     return true

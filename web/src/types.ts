@@ -36,6 +36,11 @@ export interface ClientRun {
   author: string;
 }
 
+export interface ClientHelp {
+  type: "help";
+  author: string;
+}
+
 export interface ClientClear {
   type: "clear";
   author: string;
@@ -116,6 +121,7 @@ export interface ClientKick {
 }
 
 export type ClientMessage =
+  | ClientHelp
   | ClientChat
   | ClientRun
   | ClientClear
