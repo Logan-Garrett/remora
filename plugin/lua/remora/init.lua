@@ -966,7 +966,7 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("RemoraJoin", function(cmd)
     local args = vim.split(cmd.args, " ")
     if #args < 3 then
-      vim.notify("Usage: :RemoraJoin <url> <session_id> <token> [name]", vim.log.levels.ERROR)
+      vim.notify("Usage: :RemoraJoin <url> <session_id> <token> [name] [owner_key]", vim.log.levels.ERROR)
       return
     end
     M.join({
@@ -974,6 +974,7 @@ function M.setup(opts)
       session_id = args[2],
       token = args[3],
       name = args[4] or opts.name or vim.fn.hostname(),
+      owner_key = args[5],
       bridge = opts.bridge,
     })
   end, { nargs = "+" })

@@ -1,5 +1,5 @@
 import { el, clear } from "./dom";
-import { buildWsUrl, getOwnerKey } from "./api";
+import { buildWsUrl, getOwnerKey, storeOwnerKey } from "./api";
 import { RemoraSocket } from "./ws";
 import { parseCommand } from "./commands";
 import type { ConnectionConfig, SessionInfo, RemoraEvent, ClientMessage } from "./types";
@@ -180,10 +180,11 @@ export function renderChat(
     onLeave();
   });
 
-  // Build header actions — include "Owner Key" button if we have one
+  // Build header actions
   const actionsEl = el("div", { class: "header-actions" });
   const ownerKey = getOwnerKey(session.id);
   if (ownerKey) {
+    // We have the key — show a button to copy it
     const keyBtn = el("button", {}, "Owner Key");
     keyBtn.addEventListener("click", () => {
       navigator.clipboard.writeText(ownerKey).then(
@@ -192,6 +193,19 @@ export function renderChat(
       );
     });
     actionsEl.appendChild(keyBtn);
+  } else {
+    // No key stored — show a button to enter one (for rejoining after refresh)
+    const enterKeyBtn = el("button", {}, "Enter Owner Key");
+    enterKeyBtn.addEventListener("click", () => {
+      const key = window.prompt("Paste your owner key to claim session ownership:");
+      if (key && key.trim()) {
+        storeOwnerKey(session.id, key.trim());
+        // Reconnect with the key
+        socket.close();
+        onLeave();
+      }
+    });
+    actionsEl.appendChild(enterKeyBtn);
   }
   actionsEl.appendChild(leaveBtn);
 
