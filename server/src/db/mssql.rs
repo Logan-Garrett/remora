@@ -181,6 +181,10 @@ impl Database for MssqlDb {
                 "20260428000001_full.sql",
                 include_str!("../../../migrations/mssql/20260428000001_full.sql"),
             ),
+            (
+                "20260428000002_indexes.sql",
+                include_str!("../../../migrations/mssql/20260428000002_indexes.sql"),
+            ),
         ];
 
         for (name, sql) in migration_files {

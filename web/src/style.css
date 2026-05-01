@@ -507,3 +507,76 @@ input::placeholder, textarea::placeholder {
   justify-content: flex-end;
   margin-top: 4px;
 }
+
+/* -- Mobile responsive -- */
+
+@media (max-width: 640px) {
+  /* Prevent iOS Safari from zooming on input focus */
+  input, textarea {
+    font-size: 16px;
+  }
+
+  /* Larger tap targets */
+  button {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  /* Login card: full width with gutters */
+  .login-card {
+    width: calc(100% - 32px);
+    max-width: 380px;
+    padding: 24px 20px;
+  }
+
+  /* Modal: full width with gutters */
+  .modal {
+    width: calc(100% - 32px);
+    max-width: 380px;
+    padding: 20px;
+  }
+
+  /* Header: tighter padding, allow wrapping */
+  .header {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .header-title {
+    font-size: 15px;
+  }
+
+  /* Hide status text on narrow screens to save space */
+  .header-status {
+    display: none;
+  }
+
+  /* Sessions list: tighter padding */
+  .sessions-list {
+    padding: 12px;
+  }
+
+  .session-card {
+    padding: 12px;
+  }
+
+  /* Chat: tighter padding */
+  .chat-messages {
+    padding: 10px 12px;
+  }
+
+  .chat-event {
+    max-width: 92%;
+    font-size: 14px;
+  }
+
+  .chat-input-bar {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  .chat-input-bar button {
+    flex-shrink: 0;
+  }
+}

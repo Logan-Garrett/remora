@@ -261,16 +261,21 @@ All endpoints require `Authorization: Bearer <token>` header (or `token` query p
 - **WebSocket token in query string**: The team token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
 - **Session-scoped authorization**: Currently, knowing the team token grants access to all sessions. Per-session tokens are not yet implemented. Treat the team token as a shared secret for your team.
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for the full plan. Short version:
+
+- **Per-session tokens** — scoped invite tokens so sharing one session doesn't grant server-wide access
+- **User accounts + OAuth / SSO** — replace the shared team token with real identity
+- **Multi-tenancy** — team namespacing so multiple groups can share one server
+- **MySQL / MariaDB** — fourth database backend
+- **Admin dashboard** — surface the token usage, run analytics, and allowlists already tracked in the DB
+- **Desktop app** — native Tauri wrapper with menu-bar presence and notifications
+- **VS Code / JetBrains plugins** — bring the Neovim plugin experience to other editors
+
 ## Contributing
 
-PRs are welcome. Some areas that could use help:
-
-- **Better streaming** -- token-level streaming instead of per-turn
-- **IDE plugins** -- VS Code, JetBrains, or other editors
-- **Web client** -- browser-based alternative to the Neovim plugin
-- **OAuth/JWT auth** -- replace the shared team token with proper user accounts
-- **Session persistence** -- export workspace state, push branches before cleanup
-- **Network proxy** -- egress proxy for sandbox containers to enforce fetch allowlists
+PRs are welcome. See [ROADMAP.md](ROADMAP.md) for areas that need help.
 
 Fork, branch, PR. No special process -- just keep it clean and explain what you changed.
 
