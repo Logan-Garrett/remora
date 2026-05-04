@@ -19,14 +19,15 @@ on:
     # Run weekly on Monday at 06:00 UTC
     - cron: "0 6 * * 1"
 
-permissions:
-  security-events: write
-  contents: read
+permissions: read-all
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
