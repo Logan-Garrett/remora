@@ -1,4 +1,5 @@
-FROM node:20-slim # pinned via tag, digest rotates
+# pinned via tag, digest rotates
+FROM node:20-slim
 
 # Install Claude CLI globally
 RUN npm install -g @anthropic-ai/claude-code
