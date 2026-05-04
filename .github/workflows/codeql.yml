@@ -33,7 +33,7 @@ jobs:
         # Rust is not natively supported by CodeQL — cargo-audit covers it
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
