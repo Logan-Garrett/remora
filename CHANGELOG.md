@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ## [Unreleased]
 
+### Added
+- **MCP server** (`mcp/`) — TypeScript MCP server exposing Remora sessions as tools for Claude Desktop, Claude Code, Cursor, and any MCP-compatible client. Persistent WebSocket connection with real-time event buffering.
+- **Prompt templates** (`templates/`) — team-customizable workflow templates (summarize, review, pr-description, explain, test-plan, debug). Exposed as MCP prompts and via `remora_templates` / `remora_template_run` tools.
+- MCP type-check + npm audit in CI (`web-audit` job)
+- Dependabot configured for `/mcp` directory
+
 ---
 
 ## [0.9.2] — 2026-05-01

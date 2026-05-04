@@ -11,6 +11,7 @@ flowchart TB
     subgraph clients ["Clients"]
         WEB["🌐 Web Browser\nTypeScript / Vite"]
         NV["📝 Neovim Plugin\nLua"]
+        MCP["🤖 MCP Server\nTypeScript (AI tool clients)"]
     end
 
     subgraph bridge ["Bridge Binary (Rust)"]
@@ -20,6 +21,7 @@ flowchart TB
     NV -- "JSON over stdio" --> BR
     BR -- "WebSocket" --> SRV
     WEB -- "WebSocket + REST" --> SRV
+    MCP -- "WebSocket (persistent)" --> SRV
 
     subgraph server ["Server — Rust / axum"]
         SRV["HTTP + WebSocket\nlib.rs · ws.rs"]

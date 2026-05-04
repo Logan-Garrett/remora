@@ -26,6 +26,14 @@ dev:
 web:
     cd web && npm install && npm run dev
 
+# Build the MCP server
+mcp-build:
+    cd mcp && npm install && npm run build
+
+# Type-check the MCP server
+mcp-check:
+    cd mcp && npx tsc --noEmit
+
 # Start everything with Docker Compose
 up token="localdev":
     cd web && npm install && npm run build
