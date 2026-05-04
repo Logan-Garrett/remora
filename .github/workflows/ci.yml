@@ -16,6 +16,9 @@ on:
       - "assets/**"
       - "LICENSE"
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -24,18 +27,18 @@ jobs:
     name: Spell check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: crate-ci/typos@master
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: crate-ci/typos@3bcd3b343e2ffaa3d23f8cfe7f78d0f8c2d0d0c6 # master
 
   rust-check:
     name: Rust lint & format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo check --all-targets
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check
@@ -62,9 +65,9 @@ jobs:
       REMORA_DB_PROVIDER: postgres
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Create uuid-ossp extension
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
@@ -82,9 +85,9 @@ jobs:
       REMORA_DB_PROVIDER: sqlite
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run unit tests
         run: cargo test --all
       - name: Run integration tests
@@ -113,9 +116,9 @@ jobs:
       REMORA_DB_PROVIDER: mssql
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install sqlcmd
         run: |
           curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc > /dev/null
@@ -150,8 +153,8 @@ jobs:
     name: Neovim plugin tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: rhysd/action-setup-vim@v1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
         with:
           neovim: true
           version: stable
@@ -164,7 +167,7 @@ jobs:
     name: Sandbox E2E (Docker)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Build sandbox image
         run: docker build -t remora-sandbox -f Dockerfile.sandbox .
       - name: Test container lifecycle
@@ -221,8 +224,8 @@ jobs:
     name: Security audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Run audit
@@ -232,8 +235,8 @@ jobs:
     name: Web dependency audit & type-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: "npm"
@@ -244,9 +247,18 @@ jobs:
       - name: npm audit (no high/critical)
         working-directory: web
         run: npm audit --audit-level=high
-      - name: TypeScript type-check
+      - name: TypeScript type-check (web)
         working-directory: web
         run: npx tsc --noEmit
+      - name: Install MCP dependencies
+        working-directory: mcp
+        run: npm ci
+      - name: TypeScript type-check (MCP server)
+        working-directory: mcp
+        run: npx tsc --noEmit
+      - name: npm audit (MCP)
+        working-directory: mcp
+        run: npm audit --audit-level=high
 
   e2e-web:
     name: Web E2E (Playwright)
@@ -260,18 +272,18 @@ jobs:
       REMORA_CLAUDE_CMD: echo
       REMORA_WORKSPACE_DIR: /tmp/remora-e2e-workspaces
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Build remora-server
         run: cargo build -p remora-server
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: "npm"
@@ -320,7 +332,7 @@ jobs:
 
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report
           path: web/playwright-report/
@@ -330,13 +342,13 @@ jobs:
     name: Test (Windows — SQLite + MSSQL + Web)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       # ── Rust lint & format ──────────────────────────────────────────────
       - name: Rust lint & format
@@ -433,7 +445,7 @@ jobs:
         run: cargo test -p remora-server --features mssql -- --ignored --test-threads=1
 
       # ── Web client ──────────────────────────────────────────────────────
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: "npm"
@@ -529,7 +541,7 @@ jobs:
 
       - name: Upload Playwright report (Windows)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report-windows
           path: web/playwright-report/
@@ -548,17 +560,17 @@ jobs:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Run compose smoke test
         run: bash scripts/compose-test.sh
@@ -575,17 +587,17 @@ jobs:
       REMORA_DB_PROVIDER: sqlite
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@dbd64b376a77edb5c67164dc7b5383735171cf97 # cargo-llvm-cov
       - name: Generate coverage (LCOV)
         run: cargo llvm-cov --all --lcov --output-path lcov.info -- --include-ignored --test-threads=1
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
         with:
           files: lcov.info
           fail_ci_if_error: false
@@ -594,7 +606,7 @@ jobs:
     name: Release build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo build --release

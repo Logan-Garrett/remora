@@ -89,6 +89,7 @@ Everything is persisted in the database. Reconnect anytime and get the full hist
 
 - **Web Client** -- Static TypeScript/Vite app. Server-agnostic: you enter the server URL, token, and display name at login. One hosted copy of the web client can connect to any Remora server — you don't need to deploy the frontend yourself.
 - **Neovim Plugin** -- Lua plugin with Telescope integration. Communicates via a small Rust bridge binary over WebSocket.
+- **MCP Server** -- Local TypeScript MCP server. Exposes Remora sessions as tools for Claude Desktop, Claude Code, Cursor, or any MCP-compatible client. Maintains a persistent WebSocket connection.
 - **Server** -- Rust (axum). Handles auth, WebSocket connections, event fan-out. Stateless across restarts.
 - **Database** -- Postgres (default), SQLite, or MSSQL. Append-only event log, session metadata, allowlists, quotas.
 - **Claude CLI** -- Runs on the server host (or inside a Docker sandbox). Streams tool calls and responses as events.
@@ -225,7 +226,35 @@ python3 -m http.server 3000 --directory dist/
 
 Open it in a browser, enter your server URL (e.g. `http://your-server:7200`), team token, and display name.
 
-### 4. Cross-compile for ARM Linux (Raspberry Pi, etc.)
+### 4. MCP Server (Claude Desktop, Claude Code, Cursor)
+
+The MCP server lets any MCP-compatible AI client interact with Remora sessions — persistent WebSocket connection, real-time event buffering, no reconnection per command.
+
+```bash
+cd mcp && npm install && npm run build
+```
+
+Add to your MCP client config (e.g. `~/.claude/settings.json` for Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "remora": {
+      "command": "node",
+      "args": ["/path/to/remora/mcp/dist/index.js"],
+      "env": {
+        "REMORA_URL": "http://your-server:7200",
+        "REMORA_TEAM_TOKEN": "your-team-token",
+        "REMORA_NAME": "Claude-MCP"
+      }
+    }
+  }
+}
+```
+
+Tools exposed: `remora_health`, `remora_sessions`, `remora_create`, `remora_join`, `remora_send`, `remora_run`, `remora_events`, `remora_leave`, `remora_delete`.
+
+### 5. Cross-compile for ARM Linux (Raspberry Pi, etc.)
 
 ```bash
 rustup target add aarch64-unknown-linux-gnu
