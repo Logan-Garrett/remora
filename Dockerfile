@@ -1,5 +1,6 @@
 # ---- Build stage ----
-FROM rust:bookworm AS builder # pinned via tag, digest rotates
+# pinned via tag, digest rotates
+FROM rust:bookworm AS builder
 
 WORKDIR /app
 
@@ -24,8 +25,8 @@ COPY migrations/ migrations/
 
 RUN cargo build --release -p remora-server -p remora-bridge
 
-# ---- Runtime stage ----
-FROM debian:bookworm-slim # pinned via tag, digest rotates
+# ---- Runtime stage (pinned via tag, digest rotates) ----
+FROM debian:bookworm-slim
 
 # Install runtime deps + Node.js 20 (for Claude CLI)
 # Uses NodeSource — NOT the Debian split packages (which pull 400+ deps)
