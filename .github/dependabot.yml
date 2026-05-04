@@ -20,6 +20,17 @@ updates:
       - dependencies
       - javascript
 
+  - package-ecosystem: npm
+    directory: "/mcp"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - javascript
+      - mcp
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
