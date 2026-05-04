@@ -8,11 +8,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ## [Unreleased]
 
+---
+
+## [0.9.3] — 2026-05-04
+
 ### Added
 - **MCP server** (`mcp/`) — TypeScript MCP server exposing Remora sessions as tools for Claude Desktop, Claude Code, Cursor, and any MCP-compatible client. Persistent WebSocket connection with real-time event buffering.
 - **Prompt templates** (`templates/`) — team-customizable workflow templates (summarize, review, pr-description, explain, test-plan, debug). Exposed as MCP prompts and via `remora_templates` / `remora_template_run` tools.
 - MCP type-check + npm audit in CI (`web-audit` job)
 - Dependabot configured for `/mcp` directory
+- `remora-cli.sh` script + Claude Code skill for CLI-based session interaction
+
+### Fixed
+- `Dockerfile` and `Dockerfile.sandbox`: inline comments on `FROM` lines caused Docker build parse errors
+- Bumped GitHub Actions: `codecov/codecov-action` v5→v6, `github/codeql-action` v3→v4, `actions/setup-node` v4→v6, `docker/login-action` v3→v4, `docker/build-push-action` v6→v7
+
+### Changed
+- All package versions bumped to 0.9.3 (server, bridge, common, web, mcp)
 
 ---
 
@@ -199,7 +211,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 - `REMORA_USE_SANDBOX`, `REMORA_SKIP_PERMISSIONS`, `REMORA_BIND`, and all other env vars
 - MIT license
 
-[Unreleased]: https://github.com/Logan-Garrett/remora/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Logan-Garrett/remora/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/Logan-Garrett/remora/compare/v0.9.2...v0.9.3
+[0.9.2]: https://github.com/Logan-Garrett/remora/compare/v0.9.0...v0.9.2
 [0.9.0]: https://github.com/Logan-Garrett/remora/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Logan-Garrett/remora/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Logan-Garrett/remora/compare/v0.7.0...v0.7.1
