@@ -1,6 +1,6 @@
 {
   "name": "remora-mcp",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "MCP server for Remora — exposes collaborative Claude sessions as tools",
   "type": "module",
   "main": "dist/index.js",
