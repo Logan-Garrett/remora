@@ -21,6 +21,7 @@ on:
 
 permissions:
   security-events: write
+  contents: read
 
 jobs:
   analyze:
@@ -33,17 +34,17 @@ jobs:
         # Rust is not natively supported by CodeQL — cargo-audit covers it
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@0daab03d71ff584ef619d027a3fd9146679c5d84 # v3
         with:
           languages: ${{ matrix.language }}
 
       - name: Auto-build
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@0daab03d71ff584ef619d027a3fd9146679c5d84 # v3
 
       - name: Run CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@0daab03d71ff584ef619d027a3fd9146679c5d84 # v3
         with:
           category: "/language:${{ matrix.language }}"
