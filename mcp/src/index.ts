@@ -26,6 +26,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import WebSocket from "ws";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const SERVER_URL = process.env.REMORA_URL ?? "http://localhost:7200";
 const TOKEN = process.env.REMORA_TEAM_TOKEN ?? "";
@@ -280,6 +282,105 @@ server.tool(
   async ({ session_id }) => {
     await api("DELETE", `/sessions/${session_id}`);
     return { content: [{ type: "text", text: `Session ${session_id} deleted` }] };
+  }
+);
+
+// ── Prompt Templates ─────────────────────────────────────────────────────────
+
+interface Template {
+  name: string;
+  description: string;
+  content: string;
+}
+
+function loadTemplates(): Template[] {
+  // Look for templates relative to the MCP server, then in the repo root
+  const searchPaths = [
+    resolve(import.meta.dirname ?? ".", "../../templates"),
+    resolve(import.meta.dirname ?? ".", "../../../templates"),
+    process.env.REMORA_TEMPLATES_DIR ?? "",
+  ].filter(Boolean);
+
+  for (const dir of searchPaths) {
+    if (!existsSync(dir)) continue;
+    const files = readdirSync(dir).filter((f) => f.endsWith(".md"));
+    return files.map((f) => {
+      const raw = readFileSync(join(dir, f), "utf-8");
+      const frontmatterMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      if (!frontmatterMatch) {
+        return { name: f.replace(".md", ""), description: "", content: raw.trim() };
+      }
+      const meta = frontmatterMatch[1];
+      const content = frontmatterMatch[2].trim();
+      const name = meta.match(/name:\s*(.+)/)?.[1]?.trim() ?? f.replace(".md", "");
+      const description = meta.match(/description:\s*(.+)/)?.[1]?.trim() ?? "";
+      return { name, description, content };
+    });
+  }
+  return [];
+}
+
+const templates = loadTemplates();
+
+// Register each template as an MCP prompt
+for (const tmpl of templates) {
+  server.prompt(
+    tmpl.name,
+    tmpl.description,
+    {},
+    async () => ({
+      messages: [
+        {
+          role: "user" as const,
+          content: { type: "text" as const, text: tmpl.content },
+        },
+      ],
+    })
+  );
+}
+
+// Tool to list available templates (for clients that don't support MCP prompts natively)
+server.tool(
+  "remora_templates",
+  "List available prompt templates",
+  {},
+  async () => {
+    const list = templates.map((t) => `- **${t.name}** — ${t.description}`).join("\n");
+    return {
+      content: [
+        {
+          type: "text",
+          text: templates.length > 0
+            ? `Available templates:\n${list}\n\nUse remora_template_run to execute one.`
+            : "No templates found. Add .md files to the templates/ directory.",
+        },
+      ],
+    };
+  }
+);
+
+// Tool to run a template (sends its content as a chat message + triggers /run)
+server.tool(
+  "remora_template_run",
+  "Run a prompt template — sends the template text to the session and triggers /run",
+  { name: z.string().describe("Template name (e.g. 'summarize', 'review', 'pr-description')") },
+  async ({ name }) => {
+    const tmpl = templates.find((t) => t.name === name);
+    if (!tmpl) {
+      return {
+        content: [{ type: "text", text: `Template "${name}" not found. Use remora_templates to list available templates.` }],
+      };
+    }
+    send({ type: "chat", author: currentName, text: `[template: ${tmpl.name}]\n${tmpl.content}` });
+    send({ type: "run", author: currentName });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Template "${tmpl.name}" sent to session and /run triggered. Use remora_events to read the response.`,
+        },
+      ],
+    };
   }
 );
 
