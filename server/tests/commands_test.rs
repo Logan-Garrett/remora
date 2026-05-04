@@ -505,6 +505,86 @@ async fn cmd_diff_with_repo() {
     assert!(ev.is_some(), "diff should contain the changes");
 }
 
+// ── C7: /repo_remove path traversal ─────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn cmd_repo_remove_rejects_path_traversal() {
+    let server = TestServer::start().await;
+    let session_id = server.create_session("path-traversal-test").await;
+
+    let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
+    let _ = TestServer::drain_events(&mut stream, 1500).await;
+
+    // Try to remove a repo with a path traversal name
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "repo_remove", "author": "alice", "name": "../evil"}),
+    )
+    .await;
+
+    // Should receive a system error event about invalid repo name
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "system"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("Invalid repo name")
+                })
+        },
+        5000,
+    )
+    .await;
+
+    assert!(
+        ev.is_some(),
+        "should receive an error about invalid repo name for path traversal attempt"
+    );
+}
+
+// ── C7b: /repo_remove rejects backslash traversal ───────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn cmd_repo_remove_rejects_backslash_traversal() {
+    let server = TestServer::start().await;
+    let session_id = server.create_session("backslash-traversal-test").await;
+
+    let (mut sink, mut stream) = server.connect_ws(session_id, "alice").await;
+    let _ = TestServer::drain_events(&mut stream, 1500).await;
+
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "repo_remove", "author": "alice", "name": "..\\evil"}),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "system"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("Invalid repo name")
+                })
+        },
+        5000,
+    )
+    .await;
+
+    assert!(
+        ev.is_some(),
+        "should receive an error about invalid repo name for backslash traversal"
+    );
+}
+
 // ── /run ───────────────────────────────────────────────────────────
 
 #[tokio::test]

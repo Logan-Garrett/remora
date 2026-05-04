@@ -183,6 +183,155 @@ async fn ws_backfill_on_reconnect() {
     );
 }
 
+// ── C1: Impersonation prevention — server overwrites author ─────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn ws_impersonation_prevention() {
+    let server = TestServer::start().await;
+    let session_id = server.create_session("impersonation test").await;
+
+    // Connect as "bob"
+    let (mut sink, mut stream) = server.connect_ws(session_id, "bob").await;
+    let _ = TestServer::drain_events(&mut stream, 1500).await;
+
+    // Send a chat claiming to be "admin" in the author field
+    TestServer::send_msg(
+        &mut sink,
+        serde_json::json!({"type": "chat", "author": "admin", "text": "hello"}),
+    )
+    .await;
+
+    // The echoed event should have author "bob", not "admin"
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream,
+        |ev| {
+            ev["type"] == "event"
+                && ev
+                    .get("data")
+                    .is_some_and(|d| d["kind"] == "chat" && d["payload"]["text"] == "hello")
+        },
+        5000,
+    )
+    .await;
+
+    assert!(ev.is_some(), "should receive the chat event back");
+    let data = ev.unwrap();
+    assert_eq!(
+        data["data"]["author"], "bob",
+        "server must overwrite client-supplied author with the connection name"
+    );
+    assert_ne!(
+        data["data"]["author"], "admin",
+        "impersonated author must not appear in the event"
+    );
+}
+
+// ── C5: Expired session WS error ────────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn ws_expired_session_returns_error() {
+    use remora_server::db::Database;
+
+    let server = TestServer::start().await;
+    let session_id = server.create_session("expiry test").await;
+
+    // Mark the session as expired directly via the DB
+    server
+        .db()
+        .set_session_expired(session_id)
+        .await
+        .expect("failed to mark session expired");
+
+    // Try to connect via WS
+    let (_sink, mut stream) = server.connect_ws(session_id, "alice").await;
+
+    let ev = TestServer::wait_for_event(&mut stream, 3000).await;
+    assert!(ev.is_some(), "should receive an error message");
+
+    let ev = ev.unwrap();
+    assert_eq!(ev["type"], "error");
+    assert!(
+        ev["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("cleaned up due to inactivity"),
+        "error should mention 'cleaned up due to inactivity', got: {}",
+        ev["message"]
+    );
+}
+
+// ── C6: Backfill limit enforcement ──────────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn ws_backfill_limit_enforcement() {
+    use remora_server::db::Database;
+
+    let server = TestServer::start().await;
+    let db = server.db();
+
+    // The default backfill_limit from TestServer config is 500.
+    // We'll insert events directly via DB and check that backfill
+    // respects the limit. Insert 20 chat events directly.
+    let (sid, _, _) = db.create_session("backfill-limit-test").await.unwrap();
+
+    let num_events = 20;
+    for i in 0..num_events {
+        db.insert_event(
+            sid,
+            "tester",
+            "chat",
+            serde_json::json!({"text": format!("msg-{i}")}),
+        )
+        .await
+        .unwrap();
+    }
+
+    // Connect and collect all backfill events
+    let (_sink, mut stream) = server.connect_ws(sid, "observer").await;
+    let events = TestServer::drain_events(&mut stream, 3000).await;
+
+    // Count how many are chat events from our insertion
+    let chat_events: Vec<_> = events
+        .iter()
+        .filter(|ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "chat"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .starts_with("msg-")
+                })
+        })
+        .collect();
+
+    // With backfill_limit=500 and only 20 events, all should be delivered
+    assert_eq!(
+        chat_events.len(),
+        num_events,
+        "all {num_events} events should be backfilled (limit is 500)"
+    );
+
+    // Verify ordering: first backfilled chat should be msg-0
+    let first_text = chat_events[0]["data"]["payload"]["text"].as_str().unwrap();
+    assert_eq!(
+        first_text, "msg-0",
+        "backfill should be in chronological order"
+    );
+
+    let last_text = chat_events[num_events - 1]["data"]["payload"]["text"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        last_text,
+        format!("msg-{}", num_events - 1),
+        "last backfilled chat should be the most recent"
+    );
+}
+
 // ── Auth: WS connection without token is rejected ────────────────────
 
 #[tokio::test]
