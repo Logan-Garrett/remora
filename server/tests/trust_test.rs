@@ -496,3 +496,95 @@ async fn ws_trust_by_owner_succeeds() {
     let trusted = server.db().list_trusted_participants(sid).await.unwrap();
     assert!(trusted.contains(&"bob".to_string()));
 }
+
+// ── C8: Owner-only /info shows owner_key ────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn ws_info_shows_owner_key_to_owner_only() {
+    let server = TestServer::start().await;
+    let (sid, owner_key) = server.create_session_with_key("info-key-test").await;
+
+    // Alice connects with owner_key → becomes owner
+    let (mut sink_a, mut stream_a) = server
+        .connect_ws_with_owner_key(sid, "alice", &owner_key)
+        .await;
+    let _ = TestServer::drain_events(&mut stream_a, 1500).await;
+
+    // Alice sends /info — should see the owner_key
+    TestServer::send_msg(
+        &mut sink_a,
+        serde_json::json!({"type": "session_info", "author": "alice"}),
+    )
+    .await;
+
+    let ev = TestServer::wait_for_event_matching(
+        &mut stream_a,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "system"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("Session:")
+                })
+        },
+        5000,
+    )
+    .await;
+
+    assert!(ev.is_some(), "owner should receive session info");
+    let info_text = ev.unwrap()["data"]["payload"]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        info_text.contains("Owner key:"),
+        "owner's /info should include 'Owner key:'"
+    );
+    assert!(
+        info_text.contains(&owner_key),
+        "owner's /info should include the actual owner_key value"
+    );
+
+    // Bob connects (not owner) and sends /info — should NOT see the owner_key
+    let (mut sink_b, mut stream_b) = server.connect_ws(sid, "bob").await;
+    let _ = TestServer::drain_events(&mut stream_b, 1500).await;
+
+    TestServer::send_msg(
+        &mut sink_b,
+        serde_json::json!({"type": "session_info", "author": "bob"}),
+    )
+    .await;
+
+    let ev_b = TestServer::wait_for_event_matching(
+        &mut stream_b,
+        |ev| {
+            ev["type"] == "event"
+                && ev.get("data").is_some_and(|d| {
+                    d["kind"] == "system"
+                        && d["payload"]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("Session:")
+                })
+        },
+        5000,
+    )
+    .await;
+
+    assert!(ev_b.is_some(), "non-owner should receive session info");
+    let bob_info_text = ev_b.unwrap()["data"]["payload"]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        !bob_info_text.contains("Owner key:"),
+        "non-owner's /info should NOT include 'Owner key:'"
+    );
+    assert!(
+        !bob_info_text.contains(&owner_key),
+        "non-owner's /info should NOT include the actual owner_key value"
+    );
+}
