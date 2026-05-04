@@ -12,9 +12,7 @@
 
 Collaborative Claude Code sessions. Multiple devs share a single session with a shared, append-only event log. Chat freely, add context, and invoke Claude together.
 
-**[Try the hosted web client →](https://remora.configurationproxy.com)** — point it at any Remora server you run.
-
-## Why Remora?
+# Why Remora?
 
 The remora is a fish that attaches to larger marine animals — sharks, rays, whales — and travels with them. It doesn't steer, doesn't fight, doesn't change the host. It just rides along, going wherever the bigger animal goes.
 
