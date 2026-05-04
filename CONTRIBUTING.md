@@ -58,6 +58,8 @@ remora/
 ├── plugin/          Lua — Neovim plugin
 ├── web/             TypeScript — Vite web client
 │   └── e2e/         Playwright E2E tests
+├── mcp/             TypeScript — MCP server for AI tool integration
+├── templates/       Prompt templates for team workflows
 ├── migrations/
 │   ├── postgres/    SQL migrations for Postgres
 │   ├── sqlite/      SQL migrations for SQLite

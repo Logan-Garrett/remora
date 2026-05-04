@@ -57,6 +57,18 @@ remora/
 │       ├── chat.spec.ts
 │       └── mobile.spec.ts   Mobile viewport tests (iPhone 12, iPhone 15 Pro, iPhone 15 Pro Max, Pixel 5, Pixel 7, Galaxy S24)
 │
+├── mcp/                 TypeScript — MCP server (persistent WebSocket client for AI tools)
+│   └── src/
+│       └── index.ts     MCP server: tools (health, sessions, join, send, run, events, templates)
+│
+├── templates/           Prompt templates for team workflows (loaded by MCP server)
+│   ├── summarize.md     Session activity summary
+│   ├── review.md        Code review of last /run
+│   ├── pr-description.md  Generate PR title + body
+│   ├── explain.md       Explain code to new team member
+│   ├── test-plan.md     Generate test plan for changes
+│   └── debug.md         Diagnose a bug from context
+│
 ├── migrations/
 │   ├── postgres/        SQL migrations run by sqlx::migrate!
 │   ├── sqlite/          SQL migrations run by sqlx::migrate!
