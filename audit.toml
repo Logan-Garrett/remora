@@ -4,9 +4,12 @@
 [advisories]
 # Ignore advisories with no available patch (transitive dependencies we don't control)
 ignore = [
-    # rsa timing side-channel — transitive dep of sqlx-postgres, no patch available
-    # We don't use RSA directly; this is pulled in by the Postgres TLS stack
+    # rsa timing side-channel — transitive dep of sqlx-postgres (TLS stack), no patch available
+    # We don't use RSA directly; sqlx 0.8 is latest stable
     "RUSTSEC-2023-0071",
+    # rand 0.7 unsoundness — transitive dep of winauth -> tiberius (MSSQL driver)
+    # tiberius 0.12.3 is latest; mssql feature is optional and off by default
+    "RUSTSEC-2026-0097",
 ]
 
 # Warn on unsound/unmaintained but don't fail the build
