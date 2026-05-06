@@ -9,6 +9,10 @@ updates:
     labels:
       - dependencies
       - rust
+    groups:
+      cargo:
+        patterns:
+          - "*"
 
   - package-ecosystem: npm
     directory: "/web"
@@ -19,6 +23,10 @@ updates:
     labels:
       - dependencies
       - javascript
+    groups:
+      npm-web:
+        patterns:
+          - "*"
 
   - package-ecosystem: npm
     directory: "/mcp"
@@ -30,6 +38,10 @@ updates:
       - dependencies
       - javascript
       - mcp
+    groups:
+      npm-mcp:
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -39,3 +51,7 @@ updates:
     labels:
       - dependencies
       - ci
+    groups:
+      actions:
+        patterns:
+          - "*"
