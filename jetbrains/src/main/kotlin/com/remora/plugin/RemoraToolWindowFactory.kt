@@ -49,8 +49,10 @@ class RemoraPanel(private val project: Project) : JPanel(BorderLayout()) {
             return
         }
 
-        val settings = RemoraSettings.getInstance().state
-        if (settings.serverUrl.isEmpty() || settings.token.isEmpty()) {
+        val settings = RemoraSettings.getInstance()
+        val state = settings.state
+        val token = settings.getToken()
+        if (state.serverUrl.isEmpty() || token.isEmpty()) {
             appendChat("[Error] Configure server URL and token in Settings > Tools > Remora\n")
             return
         }
@@ -59,10 +61,10 @@ class RemoraPanel(private val project: Project) : JPanel(BorderLayout()) {
         val sessionId = JOptionPane.showInputDialog(this, "Session ID:")
         if (sessionId.isNullOrBlank()) return
 
-        val name = settings.displayName.ifEmpty { "jetbrains-user" }
+        val name = state.displayName.ifEmpty { "jetbrains-user" }
         connection = RemoraConnection(
-            url = settings.serverUrl,
-            token = settings.token,
+            url = state.serverUrl,
+            token = token,
             sessionId = sessionId,
             name = name,
             onMessage = { msg -> SwingUtilities.invokeLater { handleMessage(msg) } },

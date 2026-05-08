@@ -5,8 +5,10 @@ import type { ConnectionConfig, SessionInfo } from "./types";
 let chatProvider: ChatPanelProvider;
 let statusBarItem: vscode.StatusBarItem;
 let currentConfig: ConnectionConfig | undefined;
+let secrets: vscode.SecretStorage;
 
 export function activate(context: vscode.ExtensionContext): void {
+  secrets = context.secrets;
   chatProvider = new ChatPanelProvider(context.extensionUri);
 
   context.subscriptions.push(
@@ -15,6 +17,9 @@ export function activate(context: vscode.ExtensionContext): void {
       chatProvider
     )
   );
+
+  // Migrate token from plaintext settings to SecretStorage (one-time)
+  migrateTokenToSecrets().catch(() => {});
 
   // Status bar item
   statusBarItem = vscode.window.createStatusBarItem(
@@ -33,7 +38,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("remora.sessions", cmdSessions),
     vscode.commands.registerCommand("remora.join", cmdJoin),
     vscode.commands.registerCommand("remora.leave", cmdLeave),
-    vscode.commands.registerCommand("remora.send", cmdSend)
+    vscode.commands.registerCommand("remora.send", cmdSend),
+    vscode.commands.registerCommand("remora.setToken", cmdSetToken)
   );
 }
 
@@ -49,7 +55,7 @@ async function cmdConnect(): Promise<void> {
   const config = vscode.workspace.getConfiguration("remora");
 
   let serverUrl = config.get<string>("serverUrl") || "";
-  let token = config.get<string>("token") || "";
+  let token = await getToken();
   let displayName = config.get<string>("displayName") || "";
 
   // Prompt for missing settings
@@ -73,6 +79,7 @@ async function cmdConnect(): Promise<void> {
     });
     if (!input) return;
     token = input.trim();
+    await secrets.store("remora.token", token);
   }
 
   if (!displayName) {
@@ -101,6 +108,18 @@ async function cmdConnect(): Promise<void> {
   vscode.window.showInformationMessage(
     `Remora: Connected to ${serverUrl} as ${displayName}`
   );
+}
+
+async function cmdSetToken(): Promise<void> {
+  const input = await vscode.window.showInputBox({
+    title: "Remora Token",
+    prompt: "Enter your team authentication token (stored securely)",
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (!input) return;
+  await secrets.store("remora.token", input.trim());
+  vscode.window.showInformationMessage("Remora: Token stored securely");
 }
 
 async function cmdSessions(): Promise<void> {
@@ -232,6 +251,29 @@ async function cmdSend(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Read token from SecretStorage, falling back to plaintext settings for migration. */
+async function getToken(): Promise<string> {
+  const stored = await secrets.get("remora.token");
+  if (stored) return stored;
+  // Fall back to legacy plaintext setting
+  const config = vscode.workspace.getConfiguration("remora");
+  return config.get<string>("token") || "";
+}
+
+/** One-time migration: move plaintext token from settings.json to SecretStorage. */
+async function migrateTokenToSecrets(): Promise<void> {
+  const config = vscode.workspace.getConfiguration("remora");
+  const plaintext = config.get<string>("token") || "";
+  if (!plaintext) return;
+  // Only migrate if SecretStorage doesn't already have a value
+  const existing = await secrets.get("remora.token");
+  if (existing) return;
+  await secrets.store("remora.token", plaintext);
+  // Clear the plaintext setting
+  await config.update("token", undefined, vscode.ConfigurationTarget.Global);
+  await config.update("token", undefined, vscode.ConfigurationTarget.Workspace);
+}
 
 async function ensureConfig(): Promise<ConnectionConfig | undefined> {
   if (currentConfig) return currentConfig;

@@ -108,7 +108,8 @@ export function renderLogin(
   const view = el("div", { class: "login-view" }, card);
   container.appendChild(view);
 
-  // PWA install prompt
+  // PWA install prompt — use { once: true } to prevent listener accumulation
+  // across login/logout cycles
   let deferredPrompt: Event | null = null;
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
@@ -119,9 +120,8 @@ export function renderLogin(
       deferredPrompt = null;
       installBtn.remove();
     });
-    // Append after the login card
     if (card) card.appendChild(installBtn);
-  });
+  }, { once: true });
 
   // Focus first empty field
   if (!urlInput.value) urlInput.focus();

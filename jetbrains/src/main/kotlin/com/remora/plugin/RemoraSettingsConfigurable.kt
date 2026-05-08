@@ -12,11 +12,12 @@ class RemoraSettingsConfigurable : Configurable {
     override fun getDisplayName(): String = "Remora"
 
     override fun createComponent(): JComponent {
-        val settings = RemoraSettings.getInstance().state
+        val settings = RemoraSettings.getInstance()
+        val state = settings.state
         panel = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
-        urlField = JTextField(settings.serverUrl, 30)
-        tokenField = JPasswordField(settings.token, 30)
-        nameField = JTextField(settings.displayName, 30)
+        urlField = JTextField(state.serverUrl, 30)
+        tokenField = JPasswordField(settings.getToken(), 30)
+        nameField = JTextField(state.displayName, 30)
 
         panel!!.add(JLabel("Server URL:"))
         panel!!.add(urlField)
@@ -28,25 +29,27 @@ class RemoraSettingsConfigurable : Configurable {
     }
 
     override fun isModified(): Boolean {
-        val s = RemoraSettings.getInstance().state
+        val settings = RemoraSettings.getInstance()
+        val s = settings.state
         return urlField?.text != s.serverUrl ||
-               String(tokenField?.password ?: charArrayOf()) != s.token ||
+               String(tokenField?.password ?: charArrayOf()) != settings.getToken() ||
                nameField?.text != s.displayName
     }
 
     override fun apply() {
-        val s = RemoraSettings.getInstance()
-        s.loadState(RemoraSettings.State(
+        val settings = RemoraSettings.getInstance()
+        settings.loadState(RemoraSettings.State(
             serverUrl = urlField?.text ?: "",
-            token = String(tokenField?.password ?: charArrayOf()),
             displayName = nameField?.text ?: ""
         ))
+        settings.setToken(String(tokenField?.password ?: charArrayOf()))
     }
 
     override fun reset() {
-        val s = RemoraSettings.getInstance().state
+        val settings = RemoraSettings.getInstance()
+        val s = settings.state
         urlField?.text = s.serverUrl
-        tokenField?.text = s.token
+        tokenField?.text = settings.getToken()
         nameField?.text = s.displayName
     }
 }

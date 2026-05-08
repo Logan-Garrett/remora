@@ -32,7 +32,8 @@ enum Command {
         url: String,
         /// Session UUID
         session_id: String,
-        /// Auth token
+        /// Auth token (reads from REMORA_TOKEN env var if not provided)
+        #[arg(short, long, env = "REMORA_TOKEN", hide_env_values = true)]
         token: String,
         /// Display name
         #[arg(short, long, default_value = "cli-user")]
@@ -42,14 +43,16 @@ enum Command {
     Sessions {
         /// Server URL (http:// or https://)
         url: String,
-        /// Auth token
+        /// Auth token (reads from REMORA_TOKEN env var if not provided)
+        #[arg(short, long, env = "REMORA_TOKEN", hide_env_values = true)]
         token: String,
     },
     /// Create a new session
     Create {
         /// Server URL (http:// or https://)
         url: String,
-        /// Auth token
+        /// Auth token (reads from REMORA_TOKEN env var if not provided)
+        #[arg(short, long, env = "REMORA_TOKEN", hide_env_values = true)]
         token: String,
         /// Session description
         #[arg(short, long)]
@@ -138,10 +141,15 @@ fn build_ws_url(base_url: &str, session_id: &str, token: &str, name: &str) -> St
         base_url.to_string()
     };
     let ws_base = ws_base.trim_end_matches('/');
-    format!(
-        "{}/sessions/{}?token={}&name={}",
-        ws_base, session_id, token, name
-    )
+    let base = format!("{}/sessions/{}", ws_base, session_id);
+    // Use url crate to safely encode query parameters (prevents injection via
+    // tokens or names containing &, =, #, etc.)
+    let mut parsed = url::Url::parse(&base).expect("invalid server URL");
+    parsed
+        .query_pairs_mut()
+        .append_pair("token", token)
+        .append_pair("name", name);
+    parsed.to_string()
 }
 
 // ── Event formatting ────────────────────────────────────────────────
@@ -245,8 +253,17 @@ async fn cmd_connect(url: String, session_id: String, token: String, name: Strin
 
     let (ws, _) = tokio_tungstenite::connect_async(&ws_url)
         .await
-        .unwrap_or_else(|e| {
-            eprintln!("{}", format!("Failed to connect: {}", e).red());
+        .unwrap_or_else(|_| {
+            // Don't print the error directly — it may contain the full URL with token
+            eprintln!(
+                "{}",
+                format!(
+                    "Failed to connect to {} (session {})",
+                    url,
+                    &session_id[..8.min(session_id.len())]
+                )
+                .red()
+            );
             std::process::exit(1);
         });
 
@@ -284,8 +301,8 @@ async fn cmd_connect(url: String, session_id: String, token: String, name: Strin
                                 eprintln!("{}", format!("Error: {}", message).red());
                             }
                             Err(_) => {
-                                // Unknown message, print raw
-                                println!("{}", text);
+                                // Unknown message — log to stderr, not stdout
+                                eprintln!("{}", "Received unknown message format".yellow());
                             }
                         }
                     } else {
@@ -313,7 +330,11 @@ async fn cmd_connect(url: String, session_id: String, token: String, name: Strin
                 let parsed = parse_input(&line, &name_clone);
                 serde_json::to_string(&parsed).unwrap()
             } else {
-                // Non-interactive: pass JSON lines through directly
+                // Non-interactive: validate JSON before sending
+                if serde_json::from_str::<serde_json::Value>(&line).is_err() {
+                    eprintln!("Skipping invalid JSON: {}", &line[..80.min(line.len())]);
+                    continue;
+                }
                 line
             };
             if sink.send(Message::Text(msg)).await.is_err() {
@@ -378,7 +399,8 @@ async fn cmd_sessions(url: String, token: String) {
     println!("{}", "-".repeat(70));
 
     for session in &sessions {
-        let id_short = &session.id.to_string()[..8];
+        let id_str = session.id.to_string();
+        let id_short = &id_str[..8.min(id_str.len())];
         let created = session.created_at.format("%Y-%m-%d %H:%M").to_string();
         println!("{:<10} {:<40} {}", id_short, session.description, created);
     }
@@ -428,7 +450,9 @@ async fn cmd_create(url: String, token: String, description: String, repos: Vec<
     println!("  ID: {}", session.id);
     println!("  Description: {}", session.description);
     if let Some(key) = &session.owner_key {
-        println!("  Owner key: {}", key);
+        // Print to stderr so it doesn't get captured in piped output
+        eprintln!("  Owner key: {}", key);
+        eprintln!("  (save this key securely — it grants session ownership)");
     }
 }
 

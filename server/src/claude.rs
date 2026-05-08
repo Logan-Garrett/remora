@@ -62,7 +62,7 @@ pub async fn run_claude(
                 session_id,
                 "system",
                 "system",
-                serde_json::json!({"text": format!("Failed to assemble context: {e}")}),
+                serde_json::json!({"text": "Failed to assemble context. Check server logs for details."}),
             )
             .await?;
             return Ok(());
@@ -195,18 +195,18 @@ pub async fn run_claude(
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
 
-    // Spawn a task to collect stderr
+    // Spawn a task to collect stderr (capped at 1 MB to prevent unbounded memory use)
     let stderr_handle = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
         let mut buf = String::new();
-        let mut reader = BufReader::new(stderr);
-        let _ = tokio::io::AsyncReadExt::read_to_string(&mut reader, &mut buf).await;
+        let mut reader = BufReader::new(stderr).take(1_000_000);
+        let _ = reader.read_to_string(&mut buf).await;
         buf
     });
 
     let mut response_text = String::new();
     let mut total_tokens: i64 = 0;
     let mut saw_activity = false;
-    let mut stream_started = false;
 
     // Emit stream_start before we begin reading Claude's output
     state
@@ -222,7 +222,6 @@ pub async fn run_claude(
                     // Assistant message with content blocks (text or tool_use)
                     "assistant" => {
                         saw_activity = true;
-                        stream_started = true;
                         if let Some(message) = json.get("message") {
                             if let Some(content) =
                                 message.get("content").and_then(|c| c.as_array())
@@ -359,12 +358,11 @@ pub async fn run_claude(
     })
     .await;
 
-    // Emit stream_end so clients know streaming is done
-    if stream_started {
-        state
-            .broadcast_stream(session_id, ServerMsg::StreamEnd { session_id })
-            .await;
-    }
+    // Always emit stream_end so clients know streaming is done (even if Claude
+    // crashed before producing any output — StreamStart was already sent).
+    state
+        .broadcast_stream(session_id, ServerMsg::StreamEnd { session_id })
+        .await;
 
     // Record token usage
     if total_tokens > 0 {
@@ -395,11 +393,7 @@ pub async fn run_claude(
                 .await?;
             } else {
                 let _ = db.finish_run(run_id, "failed").await;
-                let msg = if stderr_output.trim().is_empty() {
-                    format!("Claude exited with {status}")
-                } else {
-                    format!("Claude failed: {}", stderr_output.trim())
-                };
+                let msg = format!("Claude exited with {status}");
                 insert_event(
                     db,
                     session_id,

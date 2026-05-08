@@ -14,7 +14,8 @@
       { "command": "remora.sessions", "title": "Remora: List Sessions" },
       { "command": "remora.join", "title": "Remora: Join Session" },
       { "command": "remora.leave", "title": "Remora: Leave Session" },
-      { "command": "remora.send", "title": "Remora: Send Message" }
+      { "command": "remora.send", "title": "Remora: Send Message" },
+      { "command": "remora.setToken", "title": "Remora: Set Token (Secure)" }
     ],
     "viewsContainers": {
       "activitybar": [

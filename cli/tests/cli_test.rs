@@ -228,3 +228,69 @@ fn test_unknown_command_becomes_chat() {
         json!({"type": "chat", "author": "alice", "text": "/unknown stuff"})
     );
 }
+
+// ── Security-focused tests ─────────────────────────────────────────
+
+fn build_ws_url(base_url: &str, session_id: &str, token: &str, name: &str) -> String {
+    let ws_base = if base_url.starts_with("https://") {
+        base_url.replacen("https://", "wss://", 1)
+    } else if base_url.starts_with("http://") {
+        base_url.replacen("http://", "ws://", 1)
+    } else {
+        base_url.to_string()
+    };
+    let ws_base = ws_base.trim_end_matches('/');
+    let base = format!("{}/sessions/{}", ws_base, session_id);
+    let mut parsed = url::Url::parse(&base).expect("invalid server URL");
+    parsed
+        .query_pairs_mut()
+        .append_pair("token", token)
+        .append_pair("name", name);
+    parsed.to_string()
+}
+
+#[test]
+fn test_ws_url_encodes_special_chars_in_token() {
+    let url = build_ws_url(
+        "http://localhost:7200",
+        "abc-123",
+        "tok&en=with#special",
+        "user",
+    );
+    assert!(url.contains("token=tok%26en%3Dwith%23special"));
+    assert!(!url.contains("token=tok&en"));
+}
+
+#[test]
+fn test_ws_url_encodes_special_chars_in_name() {
+    let url = build_ws_url("http://localhost:7200", "abc-123", "token", "user&admin");
+    assert!(url.contains("name=user%26admin"));
+    assert!(!url.contains("name=user&admin"));
+}
+
+#[test]
+fn test_ws_url_https_to_wss() {
+    let url = build_ws_url("https://remora.example.com", "abc-123", "tok", "user");
+    assert!(url.starts_with("wss://"));
+}
+
+#[test]
+fn test_ws_url_http_to_ws() {
+    let url = build_ws_url("http://localhost:7200", "abc-123", "tok", "user");
+    assert!(url.starts_with("ws://"));
+}
+
+#[test]
+fn test_xss_in_chat_text_not_interpreted() {
+    let result = parse_input("<script>alert('xss')</script>", "alice");
+    assert_eq!(result["text"], "<script>alert('xss')</script>");
+    assert_eq!(result["type"], "chat");
+}
+
+#[test]
+fn test_path_traversal_in_add_sent_as_is() {
+    // Server-side validation is responsible for blocking this
+    let result = parse_input("/add ../../etc/passwd", "alice");
+    assert_eq!(result["path"], "../../etc/passwd");
+    assert_eq!(result["type"], "add");
+}

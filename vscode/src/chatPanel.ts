@@ -29,6 +29,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.options = {
       enableScripts: true,
+      localResourceRoots: [],
     };
 
     webviewView.webview.html = this.getHtml();
@@ -526,12 +527,6 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   let streamingDiv = null;
   let streamBuffer = "";
 
-  function escapeHtml(text) {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
   function formatTime(iso) {
     try {
       return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -728,14 +723,14 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
         headerTitle.textContent = msg.sessionDescription || "Remora";
         welcomeEl.style.display = "none";
         chatEl.classList.add("active");
-        messagesEl.innerHTML = "";
+        while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
         chatInput.focus();
         break;
 
       case "left":
         welcomeEl.style.display = "flex";
         chatEl.classList.remove("active");
-        messagesEl.innerHTML = "";
+        while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
         headerTitle.textContent = "Remora";
         headerStatus.textContent = "Disconnected";
         headerStatus.className = "header-status";

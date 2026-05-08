@@ -1,11 +1,14 @@
 const CACHE_NAME = "remora-v1";
 const SHELL_ASSETS = ["/"];
+// Only cache static asset types — prevents API response caching and cache poisoning
+const CACHEABLE_TYPES = ["text/html", "application/javascript", "text/css", "image/svg+xml", "image/png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS))
   );
-  self.skipWaiting();
+  // Don't skipWaiting — let the user refresh naturally to avoid version skew
+  // between cached assets and running JavaScript.
 });
 
 self.addEventListener("activate", (event) => {
@@ -19,19 +22,32 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  // Don't cache WebSocket upgrades or API calls
+
+  // Don't intercept API calls, WebSocket upgrades, or non-same-origin requests
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/sessions") || url.pathname === "/health") return;
+  if (event.request.method !== "GET") return;
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Cache successful responses for static assets
-        if (response.ok && event.request.method === "GET") {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        // Only cache responses with safe content types
+        if (response.ok) {
+          const contentType = response.headers.get("content-type") || "";
+          const isCacheable = CACHEABLE_TYPES.some((t) => contentType.includes(t));
+          if (isCacheable) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
         }
         return response;
       })
-      .catch(() => caches.match(event.request).then((r) => r || caches.match("/")))
+      .catch(() => {
+        // Only fall back to cached root for navigation requests (not JS/CSS/images)
+        if (event.request.mode === "navigate") {
+          return caches.match("/");
+        }
+        return caches.match(event.request);
+      })
   );
 });
