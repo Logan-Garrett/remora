@@ -4,3 +4,6 @@ target/
 *.db-shm
 *.db-wal
 .claude/
+node_modules/
+vscode/dist/
+desktop/node_modules/

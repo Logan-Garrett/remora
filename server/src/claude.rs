@@ -3,6 +3,7 @@ use crate::db::Database;
 use crate::quota;
 use crate::state::AppState;
 use crate::ws::insert_event;
+use remora_common::ServerMsg;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -205,6 +206,12 @@ pub async fn run_claude(
     let mut response_text = String::new();
     let mut total_tokens: i64 = 0;
     let mut saw_activity = false;
+    let mut stream_started = false;
+
+    // Emit stream_start before we begin reading Claude's output
+    state
+        .broadcast_stream(session_id, ServerMsg::StreamStart { session_id })
+        .await;
 
     let read_result = tokio::time::timeout(timeout, async {
         while let Ok(Some(line)) = lines.next_line().await {
@@ -215,6 +222,7 @@ pub async fn run_claude(
                     // Assistant message with content blocks (text or tool_use)
                     "assistant" => {
                         saw_activity = true;
+                        stream_started = true;
                         if let Some(message) = json.get("message") {
                             if let Some(content) =
                                 message.get("content").and_then(|c| c.as_array())
@@ -230,6 +238,16 @@ pub async fn run_claude(
                                             block.get("text").and_then(|v| v.as_str())
                                         {
                                             turn_text.push_str(text);
+                                            // Emit ephemeral stream delta
+                                            state
+                                                .broadcast_stream(
+                                                    session_id,
+                                                    ServerMsg::StreamDelta {
+                                                        session_id,
+                                                        delta: text.to_string(),
+                                                    },
+                                                )
+                                                .await;
                                         }
                                     } else if block_type == "tool_use" {
                                         let tool = block
@@ -250,7 +268,7 @@ pub async fn run_claude(
                                         .await;
                                     }
                                 }
-                                // Stream text immediately so users see it in real-time
+                                // Persist final text as a single event
                                 if !turn_text.is_empty() {
                                     let _ = insert_event(
                                         db,
@@ -340,6 +358,13 @@ pub async fn run_claude(
         child.wait().await
     })
     .await;
+
+    // Emit stream_end so clients know streaming is done
+    if stream_started {
+        state
+            .broadcast_stream(session_id, ServerMsg::StreamEnd { session_id })
+            .await;
+    }
 
     // Record token usage
     if total_tokens > 0 {

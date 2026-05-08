@@ -108,6 +108,21 @@ export function renderLogin(
   const view = el("div", { class: "login-view" }, card);
   container.appendChild(view);
 
+  // PWA install prompt
+  let deferredPrompt: Event | null = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const installBtn = el("button", { class: "secondary install-btn" }, "Install App");
+    installBtn.addEventListener("click", () => {
+      (deferredPrompt as any)?.prompt();
+      deferredPrompt = null;
+      installBtn.remove();
+    });
+    // Append after the login card
+    if (card) card.appendChild(installBtn);
+  });
+
   // Focus first empty field
   if (!urlInput.value) urlInput.focus();
   else if (!tokenInput.value) tokenInput.focus();

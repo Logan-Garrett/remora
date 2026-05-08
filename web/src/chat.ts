@@ -238,11 +238,14 @@ export function renderChat(
   const view = el("div", { class: "chat-view" }, header, messagesEl, inputBar);
   container.appendChild(view);
 
+  let streamingEl: HTMLElement | null = null;
+  let streamBuffer = "";
+
   const wsUrl = buildWsUrl(config, session.id);
   const socket = new RemoraSocket(wsUrl, {
     onEvent(event: RemoraEvent) {
-      const el = renderEvent(event, config.name);
-      messagesEl.appendChild(el);
+      const rendered = renderEvent(event, config.name);
+      messagesEl.appendChild(rendered);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     },
     onError(message: string) {
@@ -254,6 +257,32 @@ export function renderChat(
     onClose() {
       statusEl.textContent = "Disconnected";
       statusEl.className = "header-status";
+    },
+    onStreamStart() {
+      streamBuffer = "";
+      streamingEl = el("div", { class: "chat-event claude streaming" });
+      const content = el("div", { class: "content" });
+      content.textContent = "";
+      streamingEl.appendChild(content);
+      messagesEl.appendChild(streamingEl);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    },
+    onStreamDelta(delta: string) {
+      streamBuffer += delta;
+      if (streamingEl) {
+        const content = streamingEl.querySelector(".content");
+        if (content) {
+          content.textContent = streamBuffer;
+        }
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+    },
+    onStreamEnd() {
+      if (streamingEl) {
+        streamingEl.remove();
+        streamingEl = null;
+      }
+      streamBuffer = "";
     },
   });
 

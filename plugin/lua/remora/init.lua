@@ -431,7 +431,20 @@ local function on_bridge_stdout(_, data, _)
     if line ~= "" then
       local ok, msg = pcall(vim.fn.json_decode, line)
       if ok and msg then
-        if msg.type == "event" and msg.data then
+        local msg_type = msg.type
+        if msg_type == "stream_start" then
+          append_log("\226\150\182 Claude is generating...", "RemoraSystem")
+          -- skip further processing
+        elseif msg_type == "stream_delta" then
+          local delta = msg.delta or ""
+          if delta ~= "" then
+            append_log(delta, "RemoraClaudeMsg")
+          end
+          -- skip further processing
+        elseif msg_type == "stream_end" then
+          append_log("\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128\226\148\128", "RemoraSystem")
+          -- skip further processing
+        elseif msg.type == "event" and msg.data then
           local formatted = format_event(msg.data)
           for _, entry in ipairs(formatted) do
             append_log(entry[1], entry[2])

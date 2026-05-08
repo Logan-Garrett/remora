@@ -119,7 +119,11 @@ async fn state_subscribe_receives_dispatched_events() {
     let received = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv()).await;
 
     assert!(received.is_ok(), "should receive event within timeout");
-    let got = received.unwrap().expect("channel should not be closed");
+    let msg = received.unwrap().expect("channel should not be closed");
+    let got = match msg {
+        remora_common::ServerMsg::Event { data } => data,
+        _ => panic!("expected ServerMsg::Event"),
+    };
     assert_eq!(got.id, 42);
     assert_eq!(got.kind, "chat");
     assert_eq!(got.payload["text"], "dispatched message");
@@ -138,6 +142,10 @@ async fn state_subscribe_receives_dispatched_events() {
 
     let received2 = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv()).await;
     assert!(received2.is_ok(), "should receive second event");
-    let got2 = received2.unwrap().expect("channel should not be closed");
+    let msg2 = received2.unwrap().expect("channel should not be closed");
+    let got2 = match msg2 {
+        remora_common::ServerMsg::Event { data } => data,
+        _ => panic!("expected ServerMsg::Event"),
+    };
     assert_eq!(got2.id, 43);
 }

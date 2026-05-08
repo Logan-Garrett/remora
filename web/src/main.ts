@@ -3,6 +3,12 @@ import { renderSessions } from "./sessions";
 import { renderChat } from "./chat";
 import type { ConnectionConfig, SessionInfo } from "./types";
 
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {
+    // Service worker registration failed — app still works without it
+  });
+}
+
 const app = document.getElementById("app")!;
 
 function showLogin(): void {

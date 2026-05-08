@@ -1,0 +1,30 @@
+<idea-plugin>
+    <id>com.remora.plugin</id>
+    <name>Remora</name>
+    <vendor>Remora</vendor>
+    <description>Collaborative Claude Code sessions in JetBrains IDEs</description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Remora" secondary="true" anchor="right"
+                    factoryClass="com.remora.plugin.RemoraToolWindowFactory"
+                    icon="AllIcons.Actions.Lightning"/>
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.remora.plugin.RemoraSettingsConfigurable"
+                id="com.remora.plugin.settings"
+                displayName="Remora"/>
+        <applicationService serviceImplementation="com.remora.plugin.RemoraSettings"/>
+        <statusBarWidgetFactory id="RemoraStatusBar"
+                                implementation="com.remora.plugin.RemoraStatusBarFactory"/>
+        <notificationGroup id="Remora" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action id="Remora.Connect" class="com.remora.plugin.actions.ConnectAction"
+                text="Connect to Remora" description="Connect to a Remora server"/>
+        <action id="Remora.ListSessions" class="com.remora.plugin.actions.ListSessionsAction"
+                text="List Sessions" description="List available sessions"/>
+    </actions>
+</idea-plugin>

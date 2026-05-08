@@ -115,24 +115,23 @@ pub async fn handle_socket(
         ping_interval.tick().await; // skip immediate first tick
         loop {
             tokio::select! {
-                maybe_event = rx.recv() => {
-                    let Some(event) = maybe_event else { break; };
-                    if event.id <= last_backfill_id {
-                        continue;
-                    }
-                    // Check if this is a kick event targeting us
-                    if event.kind == "kick" {
-                        if let Some(target) = event.payload.get("target").and_then(|v| v.as_str()) {
-                            if target == ws_name {
-                                // Send the kick event then close
-                                let msg = ServerMsg::Event { data: event };
-                                let text = serde_json::to_string(&msg).unwrap();
-                                let _ = sink.send(Message::Text(text)).await;
-                                break;
+                maybe_msg = rx.recv() => {
+                    let Some(msg) = maybe_msg else { break; };
+                    // For persisted events, skip backfilled ones and handle kicks
+                    if let ServerMsg::Event { ref data } = msg {
+                        if data.id <= last_backfill_id {
+                            continue;
+                        }
+                        if data.kind == "kick" {
+                            if let Some(target) = data.payload.get("target").and_then(|v| v.as_str()) {
+                                if target == ws_name {
+                                    let text = serde_json::to_string(&msg).unwrap();
+                                    let _ = sink.send(Message::Text(text)).await;
+                                    break;
+                                }
                             }
                         }
                     }
-                    let msg = ServerMsg::Event { data: event };
                     let text = serde_json::to_string(&msg).unwrap();
                     if sink.send(Message::Text(text)).await.is_err() {
                         break;

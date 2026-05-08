@@ -585,7 +585,11 @@ async fn db_subscribe_and_dispatch() {
     let received = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await;
 
     assert!(received.is_ok(), "should receive event within timeout");
-    let event = received.unwrap().expect("channel should not be closed");
+    let msg = received.unwrap().expect("channel should not be closed");
+    let event = match msg {
+        remora_common::ServerMsg::Event { data } => data,
+        _ => panic!("expected ServerMsg::Event"),
+    };
     assert_eq!(event.id, event_id);
     assert_eq!(event.kind, "chat");
     assert_eq!(event.payload["text"], "hello");
