@@ -31,6 +31,23 @@ use uuid::Uuid;
 
 use state::AppState;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenKind {
+    Admin,
+    Session(Uuid),
+    Invalid,
+}
+pub async fn check_any_token(state: &AppState, raw: &str) -> TokenKind {
+    let provided = raw.strip_prefix("Bearer ").unwrap_or(raw);
+    if check_token(state, provided) {
+        return TokenKind::Admin;
+    }
+    match state.db.validate_session_token(provided).await {
+        Ok(Some(session_id)) => TokenKind::Session(session_id),
+        _ => TokenKind::Invalid,
+    }
+}
+
 // --- Auth helpers (re-exported for tests) ---
 
 pub fn check_token(state: &AppState, raw: &str) -> bool {
@@ -143,12 +160,21 @@ async fn create_session(
                 }
             }
 
+            let invite_token = match state.db.create_session_token(id, "initial").await {
+                Ok(tok) => Some(tok),
+                Err(e) => {
+                    tracing::error!("failed to create initial session token for {id}: {e}");
+                    None
+                }
+            };
+
             let info = SessionInfo {
                 id,
                 description,
                 created_at,
                 status: "active".to_string(),
                 owner_key: Some(owner_key),
+                invite_token,
             };
             (StatusCode::CREATED, Json(info)).into_response()
         }
@@ -182,6 +208,7 @@ async fn list_sessions(
                     created_at,
                     status,
                     owner_key: None,
+                    invite_token: None,
                 })
                 .collect();
             Json(sessions).into_response()
@@ -311,8 +338,17 @@ async fn ws_upgrade(
     Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    if !check_token(&state, &query.token) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    match check_any_token(&state, &query.token).await {
+        TokenKind::Admin => {}
+        TokenKind::Session(token_session_id) => {
+            if token_session_id != session_id {
+                return (StatusCode::UNAUTHORIZED, "token not valid for this session")
+                    .into_response();
+            }
+        }
+        TokenKind::Invalid => {
+            return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+        }
     }
 
     let name = query.name.unwrap_or_else(|| "anon".into());
@@ -341,6 +377,101 @@ async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
+#[derive(Deserialize)]
+struct CreateTokenBody {
+    #[serde(default)]
+    label: String,
+}
+async fn create_session_token_endpoint(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<CreateTokenBody>,
+) -> impl IntoResponse {
+    let Some(token) = extract_token(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "missing token").into_response();
+    };
+    if !check_token(&state, token) {
+        return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
+    }
+    match state.db.session_exists(session_id).await {
+        Ok(false) => return (StatusCode::NOT_FOUND, "session not found").into_response(),
+        Err(e) => {
+            tracing::error!("session_exists: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        _ => {}
+    }
+    match state.db.create_session_token(session_id, &body.label).await {
+        Ok(tok) => Json(serde_json::json!({ "token": tok, "label": body.label })).into_response(),
+        Err(e) => {
+            tracing::error!("create_session_token: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+async fn list_session_tokens_endpoint(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(raw_token) = extract_token(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "missing token").into_response();
+    };
+    let is_admin = check_token(&state, raw_token);
+    if !is_admin {
+        let provided = raw_token.strip_prefix("Bearer ").unwrap_or(raw_token);
+        let db_key = state.db.get_owner_key(session_id).await.unwrap_or(None);
+        if db_key.as_deref() != Some(provided) {
+            return (StatusCode::UNAUTHORIZED, "admin or owner token required").into_response();
+        }
+    }
+    match state.db.list_session_tokens(session_id).await {
+        Ok(tokens) => Json(serde_json::json!(tokens)).into_response(),
+        Err(e) => {
+            tracing::error!("list_session_tokens: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+async fn revoke_session_token_endpoint(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path((session_id, token_id)): Path<(Uuid, i64)>,
+) -> impl IntoResponse {
+    let Some(raw_token) = extract_token(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "missing token").into_response();
+    };
+    let is_admin = check_token(&state, raw_token);
+    if !is_admin {
+        let provided = raw_token.strip_prefix("Bearer ").unwrap_or(raw_token);
+        let db_key = state.db.get_owner_key(session_id).await.unwrap_or(None);
+        if db_key.as_deref() != Some(provided) {
+            return (StatusCode::UNAUTHORIZED, "admin or owner token required").into_response();
+        }
+    }
+    let tokens = match state.db.list_session_tokens(session_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("list_session_tokens for revoke: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    if !tokens.iter().any(|t| t.id == token_id) {
+        return (StatusCode::NOT_FOUND, "token not found for this session").into_response();
+    }
+    match state
+        .db
+        .revoke_session_token_by_id(session_id, token_id)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!("revoke_session_token: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
 /// Validate that a git URL uses a safe scheme.
 /// Only `https://`, `ssh://`, `git://`, and SSH-style `user@host:path` are allowed.
 /// Rejects `file://`, `ftp://`, and absolute/relative bare paths.
@@ -366,6 +497,12 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
         .route("/sessions/:id", get(ws_upgrade))
         .route("/sessions/:id", delete(delete_session))
         .route("/sessions/:id/reactivate", post(reactivate_session))
+        .route("/sessions/:id/tokens", post(create_session_token_endpoint))
+        .route("/sessions/:id/tokens", get(list_session_tokens_endpoint))
+        .route(
+            "/sessions/:id/tokens/:token_id",
+            delete(revoke_session_token_endpoint),
+        )
         .layer(ConcurrencyLimitLayer::new(100))
         .layer(CorsLayer::permissive())
         .with_state(shared)

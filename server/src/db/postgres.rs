@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use remora_common::Event;
+use remora_common::{Event, SessionToken};
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -564,6 +564,57 @@ impl Database for PostgresDb {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.flatten())
+    }
+
+    // -- session tokens --
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
+        let token = Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO session_tokens (session_id, token, label) VALUES ($1, $2, $3)")
+            .bind(session_id)
+            .bind(&token)
+            .bind(label)
+            .execute(&self.pool)
+            .await?;
+        Ok(token)
+    }
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
+        let row = sqlx::query_scalar::<_, Uuid>(
+            "SELECT session_id FROM session_tokens WHERE token = $1 AND revoked_at IS NULL",
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE session_tokens SET revoked_at = now() WHERE token = $1")
+            .bind(token)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE session_tokens SET revoked_at = now() WHERE id = $1 AND session_id = $2 AND revoked_at IS NULL").bind(token_id).bind(session_id).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>> {
+        let rows = sqlx::query_as::<_, (i64, Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>)>("SELECT id, session_id, label, created_at, revoked_at FROM session_tokens WHERE session_id = $1 ORDER BY id").bind(session_id).fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, session_id, label, created_at, revoked_at)| SessionToken {
+                    id,
+                    session_id,
+                    label,
+                    created_at,
+                    revoked: revoked_at.is_some(),
+                },
+            )
+            .collect())
     }
 
     // -- trusted participants --

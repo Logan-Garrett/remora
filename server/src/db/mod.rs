@@ -5,7 +5,7 @@ pub mod sqlite;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use remora_common::Event;
+use remora_common::{Event, SessionToken};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -116,6 +116,17 @@ pub trait Database: Send + Sync + 'static {
     // -- owner key --
     async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()>;
     async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>>;
+
+    // -- session tokens --
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String>;
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>>;
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()>;
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()>;
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>>;
 
     // -- trusted participants --
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
@@ -530,6 +541,51 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.get_owner_key(session_id).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.get_owner_key(session_id).await,
+        }
+    }
+
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
+        match self {
+            Self::Postgres(db) => db.create_session_token(session_id, label).await,
+            Self::Sqlite(db) => db.create_session_token(session_id, label).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.create_session_token(session_id, label).await,
+        }
+    }
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
+        match self {
+            Self::Postgres(db) => db.validate_session_token(token).await,
+            Self::Sqlite(db) => db.validate_session_token(token).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.validate_session_token(token).await,
+        }
+    }
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.revoke_session_token(token).await,
+            Self::Sqlite(db) => db.revoke_session_token(token).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.revoke_session_token(token).await,
+        }
+    }
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.revoke_session_token_by_id(session_id, token_id).await,
+            Self::Sqlite(db) => db.revoke_session_token_by_id(session_id, token_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.revoke_session_token_by_id(session_id, token_id).await,
+        }
+    }
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>> {
+        match self {
+            Self::Postgres(db) => db.list_session_tokens(session_id).await,
+            Self::Sqlite(db) => db.list_session_tokens(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_session_tokens(session_id).await,
         }
     }
 

@@ -94,6 +94,17 @@ pub struct SessionInfo {
     /// Only included in the create-session response; `None` in list responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invite_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionToken {
+    pub id: i64,
+    pub session_id: Uuid,
+    pub label: String,
+    pub created_at: DateTime<Utc>,
+    pub revoked: bool,
 }
 
 fn default_status() -> String {

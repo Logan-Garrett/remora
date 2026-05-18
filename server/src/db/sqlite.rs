@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use remora_common::Event;
+use remora_common::{Event, SessionToken};
 use serde_json::Value;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
@@ -702,6 +702,73 @@ impl Database for SqliteDb {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.and_then(|(k,)| k))
+    }
+
+    // -- session tokens --
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
+        let sid_str = session_id.to_string();
+        let token = Uuid::new_v4().to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO session_tokens (session_id, token, label, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(&sid_str)
+        .bind(&token)
+        .bind(label)
+        .bind(&now_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(token)
+    }
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT session_id FROM session_tokens WHERE token = ? AND revoked_at IS NULL",
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some((sid,)) => Ok(Some(sid.parse::<Uuid>()?)),
+            None => Ok(None),
+        }
+    }
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()> {
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query("UPDATE session_tokens SET revoked_at = ? WHERE token = ?")
+            .bind(&now_str)
+            .bind(token)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()> {
+        let sid_str = session_id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query("UPDATE session_tokens SET revoked_at = ? WHERE id = ? AND session_id = ? AND revoked_at IS NULL").bind(&now_str).bind(token_id).bind(&sid_str).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>> {
+        let sid_str = session_id.to_string();
+        let rows = sqlx::query_as::<_, (i64, String, String, String, Option<String>)>("SELECT id, session_id, label, created_at, revoked_at FROM session_tokens WHERE session_id = ? ORDER BY id").bind(&sid_str).fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(|(id, sid, label, ts, revoked_at)| {
+                let session_id = sid.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(SessionToken {
+                    id,
+                    session_id,
+                    label,
+                    created_at,
+                    revoked: revoked_at.is_some(),
+                })
+            })
+            .collect()
     }
 
     // -- trusted participants --

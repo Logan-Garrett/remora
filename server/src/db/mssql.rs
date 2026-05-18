@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use bb8::Pool;
 use bb8_tiberius::ConnectionManager;
 use chrono::{DateTime, Utc};
-use remora_common::Event;
+use remora_common::{Event, SessionToken};
 use serde_json::Value;
 use tiberius::{AuthMethod, Config};
 use tokio::sync::broadcast;
@@ -1089,6 +1089,75 @@ impl Database for MssqlDb {
             .and_then(|r| r.try_get::<&str, _>(0).ok().flatten())
             .map(|s| s.to_string());
         Ok(key)
+    }
+
+    // -- session tokens --
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let token = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO session_tokens (session_id, token, label) VALUES (@P1, @P2, @P3)",
+            &[&tib_id, &token.as_str(), &label],
+        )
+        .await?;
+        Ok(token)
+    }
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT session_id FROM session_tokens WHERE token = @P1 AND revoked_at IS NULL",
+                &[&token],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => Ok(Some(col_uuid(row, 0)?)),
+            None => Ok(None),
+        }
+    }
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        conn.execute(
+            "UPDATE session_tokens SET revoked_at = SYSDATETIMEOFFSET() WHERE token = @P1",
+            &[&token],
+        )
+        .await?;
+        Ok(())
+    }
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute("UPDATE session_tokens SET revoked_at = SYSDATETIMEOFFSET() WHERE id = @P1 AND session_id = @P2 AND revoked_at IS NULL", &[&token_id, &tib_id]).await?;
+        Ok(())
+    }
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn.query("SELECT id, session_id, label, created_at, revoked_at FROM session_tokens WHERE session_id = @P1 ORDER BY id", &[&tib_id]).await?.into_first_result().await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_i64(row, 0)?;
+            let sid = col_uuid(row, 1)?;
+            let label = col_str(row, 2)?;
+            let created_at = col_datetime(row, 3)?;
+            let revoked_at: Option<chrono::DateTime<chrono::FixedOffset>> =
+                row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(4)?;
+            result.push(SessionToken {
+                id,
+                session_id: sid,
+                label,
+                created_at,
+                revoked: revoked_at.is_some(),
+            });
+        }
+        Ok(result)
     }
 
     // -- trusted participants --
