@@ -29,7 +29,7 @@ class RemoraConnection(
 
     fun connect(scope: CoroutineScope) {
         job = scope.launch(Dispatchers.IO) {
-            val wsUrl = url.replace(Regex("^http"), "ws") +
+            val wsUrl = url.replace(Regex("^https://"), "wss://").replace(Regex("^http://"), "ws://") +
                 "/sessions/$sessionId?token=${java.net.URLEncoder.encode(token, "UTF-8")}" +
                 "&name=${java.net.URLEncoder.encode(name, "UTF-8")}"
 

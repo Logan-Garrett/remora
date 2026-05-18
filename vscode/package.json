@@ -31,7 +31,7 @@
       "title": "Remora",
       "properties": {
         "remora.serverUrl": { "type": "string", "default": "", "description": "Remora server URL (e.g. http://localhost:7200)" },
-        "remora.token": { "type": "string", "default": "", "description": "Team authentication token" },
+        "remora.token": { "type": "string", "default": "", "description": "Deprecated: use 'Remora: Set Token (Secure)' command instead", "markdownDeprecationMessage": "Use the **Remora: Set Token (Secure)** command to store your token securely via VS Code SecretStorage." },
         "remora.displayName": { "type": "string", "default": "", "description": "Your display name in sessions" }
       }
     }
@@ -45,10 +45,10 @@
   "devDependencies": {
     "@types/vscode": "^1.85.0",
     "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
     "typescript": "^5.5.0"
   },
   "dependencies": {
-    "ws": "^8.18.0",
-    "@types/ws": "^8.5.0"
+    "ws": "^8.18.0"
   }
 }
