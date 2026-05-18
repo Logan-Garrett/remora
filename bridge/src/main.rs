@@ -30,7 +30,7 @@ async fn main() {
         let reader = BufReader::new(tokio::io::stdin());
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            if sink.send(Message::Text(line)).await.is_err() {
+            if sink.send(Message::Text(line.into())).await.is_err() {
                 break;
             }
         }

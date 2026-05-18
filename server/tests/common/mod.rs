@@ -217,7 +217,7 @@ impl TestServer {
             "text": text,
         });
         sink.send(tokio_tungstenite::tungstenite::Message::Text(
-            serde_json::to_string(&msg).unwrap(),
+            serde_json::to_string(&msg).unwrap().into(),
         ))
         .await
         .expect("ws send failed");
@@ -272,7 +272,7 @@ impl TestServer {
     ) {
         use futures_util::SinkExt;
         sink.send(tokio_tungstenite::tungstenite::Message::Text(
-            serde_json::to_string(&msg).unwrap(),
+            serde_json::to_string(&msg).unwrap().into(),
         ))
         .await
         .expect("ws send failed");
