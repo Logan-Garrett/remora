@@ -9,21 +9,24 @@ COPY Cargo.toml Cargo.lock ./
 COPY common/Cargo.toml common/Cargo.toml
 COPY server/Cargo.toml server/Cargo.toml
 COPY bridge/Cargo.toml bridge/Cargo.toml
+COPY cli/Cargo.toml cli/Cargo.toml
 
 # Stub sources so Cargo can fetch + cache crate dependencies
-RUN mkdir -p common/src server/src bridge/src \
+RUN mkdir -p common/src server/src bridge/src cli/src \
     && echo "pub fn stub() {}" > common/src/lib.rs \
     && printf 'fn main() {}' > server/src/main.rs \
     && printf 'fn main() {}' > bridge/src/main.rs \
+    && printf 'fn main() {}' > cli/src/main.rs \
     && cargo fetch
 
 # Copy real source and build
 COPY common/ common/
 COPY server/ server/
 COPY bridge/ bridge/
+COPY cli/ cli/
 COPY migrations/ migrations/
 
-RUN cargo build --release -p remora-server -p remora-bridge
+RUN cargo build --release -p remora-server -p remora-bridge -p remora-cli
 
 # ---- Runtime stage (pinned via tag, digest rotates) ----
 FROM debian:bookworm-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
@@ -46,6 +49,7 @@ RUN useradd -m -s /bin/bash remora \
 
 COPY --from=builder /app/target/release/remora-server /usr/local/bin/remora-server
 COPY --from=builder /app/target/release/remora-bridge /usr/local/bin/remora-bridge
+COPY --from=builder /app/target/release/remora-cli /usr/local/bin/remora-cli
 
 # Mount host Claude auth directory so the CLI can authenticate:
 #   -v $HOME/.claude:/home/remora/.claude:ro
