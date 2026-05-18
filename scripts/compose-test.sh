@@ -130,5 +130,10 @@ echo "$LIST" | grep -q "$SESSION_ID" && fail "session still visible after delete
 
 # ── Web client served by nginx ────────────────────────────────────────────────
 step "Web client (nginx)"
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$WEB_URL/")
-[[ "$STATUS" == "200" ]] && pass "GET / → 200 from nginx" || fail "expected 200, got $STATUS"
+for i in $(seq 1 15); do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$WEB_URL/" 2>/dev/null) || true
+  [[ "$STATUS" == "200" ]] && break
+  sleep 1
+  [[ $i -eq 15 ]] && fail "nginx did not respond in 15s (last status: $STATUS)"
+done
+pass "GET / → 200 from nginx"
