@@ -179,6 +179,7 @@ export function renderSessions(
               e.stopPropagation();
               try {
                 await reactivateSession(config, session.id);
+                session.status = "active";
                 onJoin(session);
               } catch (err) {
                 alert(`Resume failed: ${err}`);

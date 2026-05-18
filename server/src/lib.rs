@@ -247,6 +247,18 @@ async fn reactivate_session(
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
 
+    // Enforce max sessions limit (reactivation adds an active session)
+    match state.db.count_sessions().await {
+        Ok(count) if count >= state.config.max_sessions as i64 => {
+            return (StatusCode::TOO_MANY_REQUESTS, "session limit reached").into_response();
+        }
+        Err(e) => {
+            tracing::error!("count sessions: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        _ => {}
+    }
+
     let status = state
         .db
         .get_session_status(session_id)
