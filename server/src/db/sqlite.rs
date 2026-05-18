@@ -707,7 +707,7 @@ impl Database for SqliteDb {
     // -- session tokens --
     async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
         let sid_str = session_id.to_string();
-        let token = Uuid::new_v4().to_string();
+        let token = format!("rmr_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let now_str = Utc::now().to_rfc3339();
         sqlx::query(
             "INSERT INTO session_tokens (session_id, token, label, created_at) VALUES (?, ?, ?, ?)",

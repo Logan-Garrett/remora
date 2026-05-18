@@ -568,7 +568,7 @@ impl Database for PostgresDb {
 
     // -- session tokens --
     async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
-        let token = Uuid::new_v4().to_string();
+        let token = format!("rmr_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         sqlx::query("INSERT INTO session_tokens (session_id, token, label) VALUES ($1, $2, $3)")
             .bind(session_id)
             .bind(&token)

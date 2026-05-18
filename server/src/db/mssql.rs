@@ -197,6 +197,10 @@ impl Database for MssqlDb {
                 "20260501000002_owner_key.sql",
                 include_str!("../../../migrations/mssql/20260501000002_owner_key.sql"),
             ),
+            (
+                "20260518000000_session_tokens.sql",
+                include_str!("../../../migrations/mssql/20260518000000_session_tokens.sql"),
+            ),
         ];
 
         for (name, sql) in migration_files {
@@ -1095,7 +1099,7 @@ impl Database for MssqlDb {
     async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
         let mut conn = self.conn().await?;
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
-        let token = Uuid::new_v4().to_string();
+        let token = format!("rmr_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         conn.execute(
             "INSERT INTO session_tokens (session_id, token, label) VALUES (@P1, @P2, @P3)",
             &[&tib_id, &token.as_str(), &label],
