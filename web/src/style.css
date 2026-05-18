@@ -426,6 +426,20 @@ input::placeholder, textarea::placeholder {
   margin-bottom: 4px;
 }
 
+.chat-event.streaming {
+  opacity: 0.8;
+  border-left: 2px solid var(--accent);
+}
+
+.chat-event.streaming .content::after {
+  content: "\2588";
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 .chat-input-bar {
   display: flex;
   gap: 8px;
@@ -506,6 +520,13 @@ input::placeholder, textarea::placeholder {
   gap: 8px;
   justify-content: flex-end;
   margin-top: 4px;
+}
+
+/* -- PWA install button -- */
+
+.install-btn {
+  margin-top: 12px;
+  width: 100%;
 }
 
 /* -- Mobile responsive -- */

@@ -3,6 +3,7 @@ use crate::db::Database;
 use crate::quota;
 use crate::state::AppState;
 use crate::ws::insert_event;
+use remora_common::ServerMsg;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -61,7 +62,7 @@ pub async fn run_claude(
                 session_id,
                 "system",
                 "system",
-                serde_json::json!({"text": format!("Failed to assemble context: {e}")}),
+                serde_json::json!({"text": "Failed to assemble context. Check server logs for details."}),
             )
             .await?;
             return Ok(());
@@ -194,17 +195,23 @@ pub async fn run_claude(
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
 
-    // Spawn a task to collect stderr
+    // Spawn a task to collect stderr (capped at 1 MB to prevent unbounded memory use)
     let stderr_handle = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
         let mut buf = String::new();
-        let mut reader = BufReader::new(stderr);
-        let _ = tokio::io::AsyncReadExt::read_to_string(&mut reader, &mut buf).await;
+        let mut reader = BufReader::new(stderr).take(1_000_000);
+        let _ = reader.read_to_string(&mut buf).await;
         buf
     });
 
     let mut response_text = String::new();
     let mut total_tokens: i64 = 0;
     let mut saw_activity = false;
+
+    // Emit stream_start before we begin reading Claude's output
+    state
+        .broadcast_stream(session_id, ServerMsg::StreamStart { session_id })
+        .await;
 
     let read_result = tokio::time::timeout(timeout, async {
         while let Ok(Some(line)) = lines.next_line().await {
@@ -230,6 +237,16 @@ pub async fn run_claude(
                                             block.get("text").and_then(|v| v.as_str())
                                         {
                                             turn_text.push_str(text);
+                                            // Emit ephemeral stream delta
+                                            state
+                                                .broadcast_stream(
+                                                    session_id,
+                                                    ServerMsg::StreamDelta {
+                                                        session_id,
+                                                        delta: text.to_string(),
+                                                    },
+                                                )
+                                                .await;
                                         }
                                     } else if block_type == "tool_use" {
                                         let tool = block
@@ -250,7 +267,7 @@ pub async fn run_claude(
                                         .await;
                                     }
                                 }
-                                // Stream text immediately so users see it in real-time
+                                // Persist final text as a single event
                                 if !turn_text.is_empty() {
                                     let _ = insert_event(
                                         db,
@@ -341,6 +358,12 @@ pub async fn run_claude(
     })
     .await;
 
+    // Always emit stream_end so clients know streaming is done (even if Claude
+    // crashed before producing any output — StreamStart was already sent).
+    state
+        .broadcast_stream(session_id, ServerMsg::StreamEnd { session_id })
+        .await;
+
     // Record token usage
     if total_tokens > 0 {
         let _ = quota::record_usage(db, session_id, total_tokens).await;
@@ -370,11 +393,7 @@ pub async fn run_claude(
                 .await?;
             } else {
                 let _ = db.finish_run(run_id, "failed").await;
-                let msg = if stderr_output.trim().is_empty() {
-                    format!("Claude exited with {status}")
-                } else {
-                    format!("Claude failed: {}", stderr_output.trim())
-                };
+                let msg = format!("Claude exited with {status}");
                 insert_event(
                     db,
                     session_id,

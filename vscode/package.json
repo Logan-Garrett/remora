@@ -1,0 +1,54 @@
+{
+  "name": "remora",
+  "displayName": "Remora",
+  "description": "Collaborative Claude Code sessions in VS Code",
+  "version": "0.9.3",
+  "publisher": "remora",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "remora.connect", "title": "Remora: Connect to Server" },
+      { "command": "remora.sessions", "title": "Remora: List Sessions" },
+      { "command": "remora.join", "title": "Remora: Join Session" },
+      { "command": "remora.leave", "title": "Remora: Leave Session" },
+      { "command": "remora.send", "title": "Remora: Send Message" },
+      { "command": "remora.setToken", "title": "Remora: Set Token (Secure)" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "remora", "title": "Remora", "icon": "media/icon.svg" }
+      ]
+    },
+    "views": {
+      "remora": [
+        { "type": "webview", "id": "remora.chat", "name": "Chat" }
+      ]
+    },
+    "configuration": {
+      "title": "Remora",
+      "properties": {
+        "remora.serverUrl": { "type": "string", "default": "", "description": "Remora server URL (e.g. http://localhost:7200)" },
+        "remora.token": { "type": "string", "default": "", "description": "Deprecated: use 'Remora: Set Token (Secure)' command instead", "markdownDeprecationMessage": "Use the **Remora: Set Token (Secure)** command to store your token securely via VS Code SecretStorage." },
+        "remora.displayName": { "type": "string", "default": "", "description": "Your display name in sessions" }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "tsc --noEmit",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

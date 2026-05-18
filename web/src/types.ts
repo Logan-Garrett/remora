@@ -24,7 +24,23 @@ export interface ServerError {
   message: string;
 }
 
-export type ServerMessage = ServerEvent | ServerError;
+export interface StreamStart {
+  type: "stream_start";
+  session_id: string;
+}
+
+export interface StreamDelta {
+  type: "stream_delta";
+  session_id: string;
+  delta: string;
+}
+
+export interface StreamEnd {
+  type: "stream_end";
+  session_id: string;
+}
+
+export type ServerMessage = ServerEvent | ServerError | StreamStart | StreamDelta | StreamEnd;
 
 export interface ClientChat {
   type: "chat";

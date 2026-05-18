@@ -71,6 +71,15 @@ pub enum ServerMsg {
     Event { data: Event },
     #[serde(rename = "error")]
     Error { message: String },
+    /// Claude has started generating a response (ephemeral, not persisted).
+    #[serde(rename = "stream_start")]
+    StreamStart { session_id: Uuid },
+    /// A partial text chunk from Claude (ephemeral, not persisted).
+    #[serde(rename = "stream_delta")]
+    StreamDelta { session_id: Uuid, delta: String },
+    /// Claude has finished generating; the final event follows via `Event` (ephemeral).
+    #[serde(rename = "stream_end")]
+    StreamEnd { session_id: Uuid },
 }
 
 /// Session metadata returned by REST endpoints.

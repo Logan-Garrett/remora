@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/tauri-v2-schema/main/tauri.conf.schema.json",
+  "productName": "Remora",
+  "version": "0.9.3",
+  "identifier": "com.remora.app",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "cd ../../web && npm run build",
+    "beforeDevCommand": "cd ../../web && npm run dev"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Remora",
+        "width": 1000,
+        "height": 700,
+        "minWidth": 400,
+        "minHeight": 300
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
+    "security": {
+      "csp": "default-src 'self'; connect-src *; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["remora"]
+      }
+    }
+  }
+}

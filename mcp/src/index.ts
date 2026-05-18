@@ -114,8 +114,12 @@ function connect(sessionId: string, name: string): Promise<void> {
 
     socket.on("message", (data) => {
       try {
-        const event = JSON.parse(data.toString()) as RemoraEvent;
-        bufferEvent(event);
+        const parsed = JSON.parse(data.toString());
+        // Skip ephemeral streaming messages — MCP consumers only see final events
+        if (parsed.type === "stream_start" || parsed.type === "stream_delta" || parsed.type === "stream_end") {
+          return;
+        }
+        bufferEvent(parsed as RemoraEvent);
       } catch {
         // ignore malformed messages
       }

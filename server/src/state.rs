@@ -1,5 +1,5 @@
 use crate::db::{Database, DatabaseBackend};
-use remora_common::Event;
+use remora_common::{Event, ServerMsg};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-pub type EventTx = mpsc::UnboundedSender<Event>;
+pub type EventTx = mpsc::UnboundedSender<ServerMsg>;
 
 /// Server configuration derived from environment variables.
 #[derive(Debug, Clone)]
@@ -111,7 +111,7 @@ impl AppState {
         &self,
         session_id: Uuid,
         name: &str,
-    ) -> (mpsc::UnboundedReceiver<Event>, CancellationToken) {
+    ) -> (mpsc::UnboundedReceiver<ServerMsg>, CancellationToken) {
         let (tx, rx) = mpsc::unbounded_channel();
         let cancel = CancellationToken::new();
         let info = ConnectionInfo {
@@ -135,10 +135,23 @@ impl AppState {
     }
 
     pub async fn dispatch(&self, event: Event) {
+        let session_id = event.session_id;
+        let msg = ServerMsg::Event { data: event };
         let subs = self.subscribers.read().await;
-        if let Some(list) = subs.get(&event.session_id) {
+        if let Some(list) = subs.get(&session_id) {
             list.iter().for_each(|info| {
-                let _ = info.tx.send(event.clone());
+                let _ = info.tx.send(msg.clone());
+            });
+        }
+    }
+
+    /// Broadcast an ephemeral streaming message to all subscribers of a session.
+    /// These are NOT persisted to the database — they are fire-and-forget.
+    pub async fn broadcast_stream(&self, session_id: Uuid, msg: ServerMsg) {
+        let subs = self.subscribers.read().await;
+        if let Some(list) = subs.get(&session_id) {
+            list.iter().for_each(|info| {
+                let _ = info.tx.send(msg.clone());
             });
         }
     }
