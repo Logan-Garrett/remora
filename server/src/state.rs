@@ -24,6 +24,15 @@ pub struct Config {
     pub allowed_tools: Vec<String>,
     pub backfill_limit: i64,
     pub max_sessions: usize,
+    // JWT
+    pub jwt_secret: String,
+    pub jwt_expiry_secs: u64,
+    pub refresh_expiry_secs: u64,
+    // OAuth
+    pub oauth_github_client_id: Option<String>,
+    pub oauth_github_client_secret: Option<String>,
+    pub oauth_google_client_id: Option<String>,
+    pub oauth_google_client_secret: Option<String>,
 }
 
 impl Config {
@@ -72,6 +81,25 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(100),
+            jwt_secret: std::env::var("REMORA_JWT_SECRET").unwrap_or_else(|_| {
+                let secret = uuid::Uuid::new_v4().to_string();
+                tracing::warn!(
+                    "REMORA_JWT_SECRET not set, using auto-generated secret (tokens will not survive restarts)"
+                );
+                secret
+            }),
+            jwt_expiry_secs: std::env::var("REMORA_JWT_EXPIRY_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3600),
+            refresh_expiry_secs: std::env::var("REMORA_REFRESH_EXPIRY_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(604800),
+            oauth_github_client_id: std::env::var("REMORA_OAUTH_GITHUB_CLIENT_ID").ok(),
+            oauth_github_client_secret: std::env::var("REMORA_OAUTH_GITHUB_CLIENT_SECRET").ok(),
+            oauth_google_client_id: std::env::var("REMORA_OAUTH_GOOGLE_CLIENT_ID").ok(),
+            oauth_google_client_secret: std::env::var("REMORA_OAUTH_GOOGLE_CLIENT_SECRET").ok(),
         }
     }
 }

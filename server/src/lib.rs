@@ -4,6 +4,7 @@
 //! exposes the internal modules so that `tests/` integration tests
 //! can build routers, create `AppState`, etc.
 
+pub mod auth;
 pub mod claude;
 pub mod commands;
 pub mod context;
@@ -31,21 +32,45 @@ use uuid::Uuid;
 
 use state::AppState;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum TokenKind {
     Admin,
     Session(Uuid),
+    UserJwt(remora_common::User),
+    ApiKey(remora_common::User),
     Invalid,
 }
 pub async fn check_any_token(state: &AppState, raw: &str) -> TokenKind {
     let provided = raw.strip_prefix("Bearer ").unwrap_or(raw);
+
+    // 1. Admin team token (constant-time compare)
     if check_token(state, provided) {
         return TokenKind::Admin;
     }
-    match state.db.validate_session_token(provided).await {
-        Ok(Some(session_id)) => TokenKind::Session(session_id),
-        _ => TokenKind::Invalid,
+
+    // 2. JWT decode (JWTs start with "ey")
+    if provided.starts_with("ey") {
+        if let Some(claims) = auth::decode_jwt(provided, &state.config.jwt_secret) {
+            if let Ok(user_id) = claims.sub.parse::<Uuid>() {
+                if let Ok(Some(user)) = state.db.get_user_by_id(user_id).await {
+                    return TokenKind::UserJwt(user);
+                }
+            }
+        }
     }
+
+    // 3. Session token (DB lookup)
+    if let Ok(Some(session_id)) = state.db.validate_session_token(provided).await {
+        return TokenKind::Session(session_id);
+    }
+
+    // 4. API key (hash then DB lookup)
+    let key_hash = auth::sha256_hex(provided);
+    if let Ok(Some(user)) = state.db.validate_api_key(&key_hash).await {
+        return TokenKind::ApiKey(user);
+    }
+
+    TokenKind::Invalid
 }
 
 // --- Auth helpers (re-exported for tests) ---
@@ -338,20 +363,26 @@ async fn ws_upgrade(
     Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    match check_any_token(&state, &query.token).await {
-        TokenKind::Admin => {}
+    let token_kind = check_any_token(&state, &query.token).await;
+    let jwt_name = match &token_kind {
+        TokenKind::Admin => None,
         TokenKind::Session(token_session_id) => {
-            if token_session_id != session_id {
+            if *token_session_id != session_id {
                 return (StatusCode::UNAUTHORIZED, "token not valid for this session")
                     .into_response();
             }
+            None
         }
+        TokenKind::UserJwt(user) => Some(user.display_name.clone()),
+        TokenKind::ApiKey(user) => Some(user.display_name.clone()),
         TokenKind::Invalid => {
             return (StatusCode::UNAUTHORIZED, "bad token").into_response();
         }
-    }
+    };
 
-    let name = query.name.unwrap_or_else(|| "anon".into());
+    // If authenticated via JWT/API key, use the user's display_name;
+    // otherwise fall back to ?name= query param.
+    let name = jwt_name.unwrap_or_else(|| query.name.unwrap_or_else(|| "anon".into()));
     let owner_key = query.owner_key;
     ws.on_upgrade(move |socket| ws::handle_socket(state, session_id, name, owner_key, socket))
         .into_response()
@@ -492,6 +523,7 @@ pub fn is_safe_git_url(url: &str) -> bool {
 pub fn build_router(shared: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_check))
+        // Session management
         .route("/sessions", post(create_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", get(ws_upgrade))
@@ -502,6 +534,25 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
         .route(
             "/sessions/:id/tokens/:token_id",
             delete(revoke_session_token_endpoint),
+        )
+        // Auth endpoints
+        .route("/auth/register", post(auth::register))
+        .route("/auth/login", post(auth::login))
+        .route("/auth/refresh", post(auth::refresh))
+        .route("/auth/me", get(auth::me))
+        .route("/auth/api-keys", post(auth::create_api_key))
+        .route("/auth/api-keys", get(auth::list_api_keys))
+        .route("/auth/api-keys/:id", delete(auth::revoke_api_key_endpoint))
+        // OAuth
+        .route("/auth/oauth/github", get(auth::oauth_github_redirect))
+        .route(
+            "/auth/oauth/github/callback",
+            get(auth::oauth_github_callback),
+        )
+        .route("/auth/oauth/google", get(auth::oauth_google_redirect))
+        .route(
+            "/auth/oauth/google/callback",
+            get(auth::oauth_google_callback),
         )
         .layer(ConcurrencyLimitLayer::new(100))
         .layer(CorsLayer::permissive())

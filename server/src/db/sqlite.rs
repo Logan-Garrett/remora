@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use remora_common::{Event, SessionToken};
+use remora_common::{ApiKeyInfo, Event, SessionToken, User};
 use serde_json::Value;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
@@ -808,6 +808,317 @@ impl Database for SqliteDb {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(|(n,)| n).collect())
+    }
+
+    // -- users --
+
+    async fn create_user(
+        &self,
+        email: &str,
+        display_name: &str,
+        password_hash: Option<&str>,
+        role: &str,
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        let id_str = id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO users (id, email, display_name, password_hash, role, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id_str)
+        .bind(email)
+        .bind(display_name)
+        .bind(password_hash)
+        .bind(role)
+        .bind(&now_str)
+        .bind(&now_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> anyhow::Result<Option<User>> {
+        let row = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT id, email, display_name, role, created_at FROM users WHERE email = ?",
+        )
+        .bind(email)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some((id, email, display_name, role, ts)) => {
+                let uuid = id.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(Some(User {
+                    id: uuid,
+                    email,
+                    display_name,
+                    role,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn get_user_by_id(&self, id: Uuid) -> anyhow::Result<Option<User>> {
+        let id_str = id.to_string();
+        let row = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT id, email, display_name, role, created_at FROM users WHERE id = ?",
+        )
+        .bind(&id_str)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some((uid, email, display_name, role, ts)) => {
+                let uuid = uid.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(Some(User {
+                    id: uuid,
+                    email,
+                    display_name,
+                    role,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn get_password_hash(&self, email: &str) -> anyhow::Result<Option<String>> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT password_hash FROM users WHERE email = ?")
+                .bind(email)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.and_then(|(h,)| h))
+    }
+
+    // -- refresh tokens --
+
+    async fn store_refresh_token(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        let id_str = id.to_string();
+        let uid_str = user_id.to_string();
+        let expires_str = expires_at.to_rfc3339();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id_str)
+        .bind(&uid_str)
+        .bind(token_hash)
+        .bind(&expires_str)
+        .bind(&now_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn validate_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid)>> {
+        let now_str = Utc::now().to_rfc3339();
+        let row = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, user_id FROM refresh_tokens \
+             WHERE token_hash = ? AND expires_at > ?",
+        )
+        .bind(token_hash)
+        .bind(&now_str)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some((id, uid)) => Ok(Some((id.parse::<Uuid>()?, uid.parse::<Uuid>()?))),
+            None => Ok(None),
+        }
+    }
+
+    async fn delete_refresh_token(&self, token_id: Uuid) -> anyhow::Result<()> {
+        let id_str = token_id.to_string();
+        sqlx::query("DELETE FROM refresh_tokens WHERE id = ?")
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // -- oauth --
+
+    async fn upsert_oauth_connection(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<()> {
+        let uid_str = user_id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO oauth_connections (user_id, provider, provider_user_id, created_at) \
+             VALUES (?, ?, ?, ?) \
+             ON CONFLICT (provider, provider_user_id) DO UPDATE SET user_id = excluded.user_id",
+        )
+        .bind(&uid_str)
+        .bind(provider)
+        .bind(provider_user_id)
+        .bind(&now_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_user_by_oauth(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<Option<User>> {
+        let row = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT u.id, u.email, u.display_name, u.role, u.created_at \
+             FROM users u JOIN oauth_connections o ON u.id = o.user_id \
+             WHERE o.provider = ? AND o.provider_user_id = ?",
+        )
+        .bind(provider)
+        .bind(provider_user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some((id, email, display_name, role, ts)) => {
+                let uuid = id.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(Some(User {
+                    id: uuid,
+                    email,
+                    display_name,
+                    role,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    // -- api keys --
+
+    async fn create_api_key(
+        &self,
+        user_id: Uuid,
+        key_hash: &str,
+        label: &str,
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        let id_str = id.to_string();
+        let uid_str = user_id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO api_keys (id, user_id, key_hash, label, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id_str)
+        .bind(&uid_str)
+        .bind(key_hash)
+        .bind(label)
+        .bind(&now_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn validate_api_key(&self, key_hash: &str) -> anyhow::Result<Option<User>> {
+        let row = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT u.id, u.email, u.display_name, u.role, u.created_at \
+             FROM users u JOIN api_keys k ON u.id = k.user_id \
+             WHERE k.key_hash = ? AND k.revoked_at IS NULL",
+        )
+        .bind(key_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        // Update last_used_at on successful lookup
+        if row.is_some() {
+            let now_str = Utc::now().to_rfc3339();
+            let _ = sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?")
+                .bind(&now_str)
+                .bind(key_hash)
+                .execute(&self.pool)
+                .await;
+        }
+        match row {
+            Some((id, email, display_name, role, ts)) => {
+                let uuid = id.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(Some(User {
+                    id: uuid,
+                    email,
+                    display_name,
+                    role,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn list_api_keys(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiKeyInfo>> {
+        let uid_str = user_id.to_string();
+        let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>)>(
+            "SELECT id, label, created_at, last_used_at, revoked_at \
+             FROM api_keys WHERE user_id = ? ORDER BY created_at",
+        )
+        .bind(&uid_str)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|(id, label, ts, last_used, revoked_at)| {
+                let uuid = id.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                let last_used_at = last_used
+                    .as_deref()
+                    .map(|t| {
+                        DateTime::parse_from_rfc3339(t)
+                            .map(|d| d.with_timezone(&Utc))
+                            .or_else(|_| t.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))
+                    })
+                    .transpose()?;
+                Ok(ApiKeyInfo {
+                    id: uuid,
+                    label,
+                    created_at,
+                    last_used_at,
+                    revoked: revoked_at.is_some(),
+                })
+            })
+            .collect()
+    }
+
+    async fn revoke_api_key(&self, key_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        let kid_str = key_id.to_string();
+        let uid_str = user_id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "UPDATE api_keys SET revoked_at = ? \
+             WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+        )
+        .bind(&now_str)
+        .bind(&kid_str)
+        .bind(&uid_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     // -- notifications --

@@ -496,6 +496,13 @@ async fn db_participant_tracking() {
         allowed_tools: vec![],
         backfill_limit: 500,
         max_sessions: 100,
+        jwt_secret: "test-jwt-secret".into(),
+        jwt_expiry_secs: 3600,
+        refresh_expiry_secs: 604800,
+        oauth_github_client_id: None,
+        oauth_github_client_secret: None,
+        oauth_google_client_id: None,
+        oauth_google_client_secret: None,
     };
 
     let state = remora_server::state::AppState::new(db.clone(), "test-token".to_string(), config);
@@ -556,6 +563,13 @@ async fn db_subscribe_and_dispatch() {
         allowed_tools: vec![],
         backfill_limit: 500,
         max_sessions: 100,
+        jwt_secret: "test-jwt-secret".into(),
+        jwt_expiry_secs: 3600,
+        refresh_expiry_secs: 604800,
+        oauth_github_client_id: None,
+        oauth_github_client_secret: None,
+        oauth_google_client_id: None,
+        oauth_google_client_secret: None,
     };
 
     let state = std::sync::Arc::new(remora_server::state::AppState::new(
