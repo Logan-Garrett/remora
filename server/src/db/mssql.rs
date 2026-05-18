@@ -274,11 +274,11 @@ impl Database for MssqlDb {
         Ok((id, description.to_string(), now))
     }
 
-    async fn list_sessions(&self) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>)>> {
+    async fn list_sessions(&self) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>> {
         let mut conn = self.conn().await?;
         let rows = conn
             .query(
-                "SELECT id, description, created_at FROM sessions ORDER BY created_at DESC",
+                "SELECT id, description, created_at, status FROM sessions ORDER BY created_at DESC",
                 &[],
             )
             .await?
@@ -290,7 +290,8 @@ impl Database for MssqlDb {
             let id = col_uuid(row, 0)?;
             let desc = col_str(row, 1)?;
             let created = col_datetime(row, 2)?;
-            result.push((id, desc, created));
+            let status = col_str(row, 3)?;
+            result.push((id, desc, created, status));
         }
         Ok(result)
     }
@@ -339,6 +340,18 @@ impl Database for MssqlDb {
         let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
         conn.execute(
             "UPDATE sessions SET status = 'expired' WHERE id = @P1",
+            &[&tib_id],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn reactivate_session(&self, session_id: Uuid) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute(
+            "UPDATE sessions SET status = 'active', idle_since = NULL \
+             WHERE id = @P1 AND status = 'expired'",
             &[&tib_id],
         )
         .await?;

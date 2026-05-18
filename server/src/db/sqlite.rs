@@ -82,20 +82,20 @@ impl Database for SqliteDb {
         Ok((id, description.to_string(), now))
     }
 
-    async fn list_sessions(&self) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>)>> {
-        let rows = sqlx::query_as::<_, (String, String, String)>(
-            "SELECT id, description, created_at FROM sessions ORDER BY created_at DESC",
+    async fn list_sessions(&self) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>> {
+        let rows = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT id, description, created_at, status FROM sessions ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
 
         rows.into_iter()
-            .map(|(id, desc, ts)| {
+            .map(|(id, desc, ts, status)| {
                 let uuid = id.parse::<Uuid>()?;
                 let dt = DateTime::parse_from_rfc3339(&ts)
                     .map(|d| d.with_timezone(&Utc))
                     .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
-                Ok((uuid, desc, dt))
+                Ok((uuid, desc, dt, status))
             })
             .collect()
     }
@@ -133,6 +133,18 @@ impl Database for SqliteDb {
             .bind(&id_str)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    async fn reactivate_session(&self, session_id: Uuid) -> anyhow::Result<()> {
+        let id_str = session_id.to_string();
+        sqlx::query(
+            "UPDATE sessions SET status = 'active', idle_since = NULL \
+             WHERE id = ? AND status = 'expired'",
+        )
+        .bind(&id_str)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

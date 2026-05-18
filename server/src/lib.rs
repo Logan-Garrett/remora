@@ -147,6 +147,7 @@ async fn create_session(
                 id,
                 description,
                 created_at,
+                status: "active".to_string(),
                 owner_key: Some(owner_key),
             };
             (StatusCode::CREATED, Json(info)).into_response()
@@ -175,10 +176,11 @@ async fn list_sessions(
         Ok(rows) => {
             let sessions: Vec<SessionInfo> = rows
                 .into_iter()
-                .map(|(id, description, created_at)| SessionInfo {
+                .map(|(id, description, created_at, status)| SessionInfo {
                     id,
                     description,
                     created_at,
+                    status,
                     owner_key: None,
                 })
                 .collect();
@@ -231,6 +233,55 @@ async fn delete_session(
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }
+}
+
+async fn reactivate_session(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(token) = extract_token(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "missing token").into_response();
+    };
+    if !check_token(&state, token) {
+        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    }
+
+    let status = state
+        .db
+        .get_session_status(session_id)
+        .await
+        .unwrap_or(None);
+    match status.as_deref() {
+        None => {
+            return (StatusCode::NOT_FOUND, "session not found").into_response();
+        }
+        Some("active") => {
+            return (StatusCode::BAD_REQUEST, "session is already active").into_response();
+        }
+        Some("expired") => {}
+        Some(_) => {
+            return (StatusCode::BAD_REQUEST, "session cannot be reactivated").into_response();
+        }
+    }
+
+    if let Err(e) = state.db.reactivate_session(session_id).await {
+        tracing::error!("reactivate session {session_id}: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+    }
+
+    let session_dir = state.config.workspace_dir.join(session_id.to_string());
+    if let Err(e) = tokio::fs::create_dir_all(&session_dir).await {
+        tracing::error!("failed to create workspace for reactivated session {session_id}: {e}");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to create workspace",
+        )
+            .into_response();
+    }
+
+    tracing::info!("session {session_id} reactivated");
+    StatusCode::NO_CONTENT.into_response()
 }
 
 // --- WebSocket upgrade ---
@@ -302,6 +353,7 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
         .route("/sessions", get(list_sessions))
         .route("/sessions/:id", get(ws_upgrade))
         .route("/sessions/:id", delete(delete_session))
+        .route("/sessions/:id/reactivate", post(reactivate_session))
         .layer(ConcurrencyLimitLayer::new(100))
         .layer(CorsLayer::permissive())
         .with_state(shared)

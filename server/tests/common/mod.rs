@@ -47,7 +47,7 @@ impl TestServer {
         // Clean slate: delete all sessions (cascades to events, repos, etc.)
         // We do this by listing and deleting each session via the trait.
         let sessions = db_arc.list_sessions().await.unwrap_or_default();
-        for (id, _, _) in &sessions {
+        for (id, _, _, _) in &sessions {
             let _ = db_arc.delete_session(*id).await;
         }
 
