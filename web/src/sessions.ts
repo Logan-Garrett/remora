@@ -1,5 +1,5 @@
 import { el, clear } from "./dom";
-import { listSessions, createSession, deleteSession, storeOwnerKey } from "./api";
+import { listSessions, createSession, deleteSession, reactivateSession, storeOwnerKey } from "./api";
 import type { ConnectionConfig, SessionInfo } from "./types";
 
 function showCreateModal(
@@ -143,16 +143,27 @@ export function renderSessions(
     }
 
     for (const session of sessions) {
+      const isExpired = session.status === "expired";
+
+      const descChildren: (HTMLElement | string)[] = [
+        session.description || "(no description)",
+      ];
+      if (isExpired) {
+        descChildren.push(
+          el("span", { class: "session-badge expired" }, "expired")
+        );
+      }
+
       const card = el(
         "div",
-        { class: "session-card" },
+        { class: isExpired ? "session-card session-expired" : "session-card" },
         el(
           "div",
           {},
           el(
             "div",
             { class: "session-desc" },
-            session.description || "(no description)"
+            ...descChildren
           ),
           el(
             "div",
@@ -162,6 +173,20 @@ export function renderSessions(
         ),
         (() => {
           const actions = el("div", { class: "session-actions" });
+          if (isExpired) {
+            const resumeBtn = el("button", { class: "primary" }, "Resume");
+            resumeBtn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              try {
+                await reactivateSession(config, session.id);
+                session.status = "active";
+                onJoin(session);
+              } catch (err) {
+                alert(`Resume failed: ${err}`);
+              }
+            });
+            actions.appendChild(resumeBtn);
+          }
           const delBtn = el("button", { class: "danger" }, "Delete");
           delBtn.addEventListener("click", async (e) => {
             e.stopPropagation();
@@ -178,7 +203,9 @@ export function renderSessions(
         })()
       );
 
-      card.addEventListener("click", () => onJoin(session));
+      if (!isExpired) {
+        card.addEventListener("click", () => onJoin(session));
+      }
       listContainer.appendChild(card);
     }
   }

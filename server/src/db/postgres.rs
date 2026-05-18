@@ -51,9 +51,9 @@ impl Database for PostgresDb {
         Ok(row)
     }
 
-    async fn list_sessions(&self) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>)>> {
-        let rows = sqlx::query_as::<_, (Uuid, String, DateTime<Utc>)>(
-            "SELECT id, description, created_at FROM sessions ORDER BY created_at DESC",
+    async fn list_sessions(&self) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, DateTime<Utc>, String)>(
+            "SELECT id, description, created_at, status FROM sessions ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -90,6 +90,17 @@ impl Database for PostgresDb {
             .bind(session_id)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    async fn reactivate_session(&self, session_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE sessions SET status = 'active', idle_since = NULL \
+             WHERE id = $1 AND status = 'expired'",
+        )
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

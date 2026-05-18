@@ -26,7 +26,7 @@ async fn db_create_and_list_sessions() {
     assert_ne!(id1, id2);
 
     let sessions = db.list_sessions().await.unwrap();
-    let ids: Vec<uuid::Uuid> = sessions.iter().map(|(id, _, _)| *id).collect();
+    let ids: Vec<uuid::Uuid> = sessions.iter().map(|(id, _, _, _)| *id).collect();
     assert!(ids.contains(&id1));
     assert!(ids.contains(&id2));
 }

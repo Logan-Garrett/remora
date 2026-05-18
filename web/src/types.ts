@@ -2,6 +2,7 @@ export interface SessionInfo {
   id: string;
   description: string;
   created_at: string;
+  status: string;
   owner_key?: string;
 }
 

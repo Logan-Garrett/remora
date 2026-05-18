@@ -231,6 +231,27 @@ input::placeholder, textarea::placeholder {
   flex-shrink: 0;
 }
 
+.session-card.session-expired {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.session-card.session-expired:hover {
+  border-color: var(--border);
+}
+
+.session-badge.expired {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 158, 100, 0.15);
+  color: var(--orange);
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 400;
+}
+
 .sessions-empty {
   text-align: center;
   color: var(--text-muted);

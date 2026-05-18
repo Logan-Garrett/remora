@@ -18,7 +18,7 @@ The server is **stateless across restarts** — reconnecting clients get their h
 remora/
 ├── server/              Rust — axum HTTP + WebSocket server (main binary: remora-server)
 │   └── src/
-│       ├── lib.rs       Router, auth, REST handlers (create/list/delete session, health)
+│       ├── lib.rs       Router, auth, REST handlers (create/list/delete/reactivate session, health)
 │       ├── ws.rs        WebSocket upgrade, per-connection send loop, ping keepalive
 │       ├── commands.rs  Dispatch ClientMsg variants to handlers (/run, /add, /fetch, etc.)
 │       ├── state.rs     AppState: in-memory subscribers/participants/session_owners maps, Config from env
@@ -159,6 +159,7 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 - **Scan for secrets** in diffs before any push. Never commit tokens, passwords, or API keys.
 - **Display names are unique per session** (enforced at WS connect). A second connection with the same name is rejected with `ServerMsg::Error`.
 - **`/trust` and `/untrust` are restricted to the session owner** (first participant to join). Other participants receive a system error if they attempt these commands.
+- **All PRs require a security review and documentation review before merge/push.** No exceptions for any code changes.
 
 ---
 

@@ -57,6 +57,19 @@ export async function deleteSession(
     throw new Error(`Server error: ${resp.status}`);
 }
 
+export async function reactivateSession(
+  config: ConnectionConfig,
+  sessionId: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/sessions/${sessionId}/reactivate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.token}` },
+  });
+  if (resp.status === 401) throw new Error("Invalid token");
+  if (!resp.ok && resp.status !== 204)
+    throw new Error(`Server error: ${resp.status}`);
+}
+
 const OWNER_KEY_PREFIX = "remora_owner_key_";
 
 /** Store an owner_key for a session (called after creating a session). */
