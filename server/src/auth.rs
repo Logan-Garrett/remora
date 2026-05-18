@@ -10,6 +10,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use remora_common::User;
 use serde::{Deserialize, Serialize};
@@ -92,6 +93,38 @@ pub fn sha256_hex(input: &str) -> String {
 
 pub fn generate_random_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+}
+
+// ---------------------------------------------------------------------------
+// OAuth CSRF state parameter (self-validating HMAC)
+// ---------------------------------------------------------------------------
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Generate a self-validating OAuth state parameter.
+/// Format: `<random_uuid>.<hmac_hex>` where the HMAC is computed over the UUID
+/// using the JWT secret. No server-side storage required.
+pub fn generate_oauth_state(secret: &str) -> String {
+    let nonce = Uuid::new_v4().to_string();
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(nonce.as_bytes());
+    let sig = hex::encode(mac.finalize().into_bytes());
+    format!("{nonce}.{sig}")
+}
+
+/// Validate an OAuth state parameter. Returns true if the HMAC matches.
+pub fn validate_oauth_state(state: &str, secret: &str) -> bool {
+    let Some((nonce, sig_hex)) = state.split_once('.') else {
+        return false;
+    };
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(nonce.as_bytes());
+    let expected = hex::encode(mac.finalize().into_bytes());
+    // Constant-time comparison
+    use subtle::ConstantTimeEq;
+    sig_hex.as_bytes().ct_eq(expected.as_bytes()).into()
 }
 
 // ---------------------------------------------------------------------------
@@ -207,10 +240,11 @@ pub async fn register(
             .into_response();
     }
 
-    // Check if email already exists
+    // Check if email already exists. Return a generic error to avoid
+    // leaking whether a given email is already registered (email enumeration).
     match state.db.get_user_by_email(&body.email).await {
         Ok(Some(_)) => {
-            return (StatusCode::CONFLICT, "email already registered").into_response();
+            return (StatusCode::BAD_REQUEST, "registration failed").into_response();
         }
         Err(e) => {
             tracing::error!("get_user_by_email: {e}");
@@ -328,19 +362,19 @@ pub async fn refresh(
     }
 
     let token_hash = sha256_hex(&body.refresh_token);
-    let (token_id, user_id) = match state.db.validate_refresh_token(&token_hash).await {
-        Ok(Some(pair)) => pair,
+
+    // Atomic consume: DELETE + RETURNING in one query to prevent race conditions
+    // where two concurrent requests could both validate the same token.
+    let user_id = match state.db.consume_refresh_token(&token_hash).await {
+        Ok(Some(uid)) => uid,
         Ok(None) => {
             return (StatusCode::UNAUTHORIZED, "invalid or expired refresh token").into_response();
         }
         Err(e) => {
-            tracing::error!("validate_refresh_token: {e}");
+            tracing::error!("consume_refresh_token: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
         }
     };
-
-    // Delete the old token (rotation)
-    let _ = state.db.delete_refresh_token(token_id).await;
 
     let user = match state.db.get_user_by_id(user_id).await {
         Ok(Some(u)) => u,
@@ -365,7 +399,26 @@ pub async fn refresh(
         }
     };
 
-    Json(serde_json::json!({ "access_token": access_token })).into_response()
+    // Issue a new refresh token (rotation: old one was already consumed above)
+    let raw_refresh = generate_random_token();
+    let refresh_hash = sha256_hex(&raw_refresh);
+    let expires_at =
+        Utc::now() + chrono::Duration::seconds(state.config.refresh_expiry_secs as i64);
+    if let Err(e) = state
+        .db
+        .store_refresh_token(user.id, &refresh_hash, expires_at)
+        .await
+    {
+        tracing::error!("store_refresh_token (refresh): {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+    }
+
+    Json(AuthResponse {
+        access_token,
+        refresh_token: raw_refresh,
+        user,
+    })
+    .into_response()
 }
 
 pub async fn me(
@@ -513,9 +566,14 @@ pub async fn oauth_github_redirect(State(state): State<Arc<AppState>>) -> impl I
         }
     };
 
+    let oauth_state = generate_oauth_state(&state.config.jwt_secret);
+    let redirect_base = &state.config.oauth_redirect_base_url;
+    let raw_redirect = format!("{redirect_base}/auth/oauth/github/callback");
+    let redirect_uri = urlencoding::encode(&raw_redirect);
+    let encoded_state = urlencoding::encode(&oauth_state);
     let url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&scope=user:email",
-        client_id
+        "https://github.com/login/oauth/authorize?client_id={}&scope=user:email&state={}&redirect_uri={}",
+        client_id, encoded_state, redirect_uri
     );
     axum::response::Redirect::temporary(&url).into_response()
 }
@@ -533,6 +591,16 @@ pub async fn oauth_github_callback(
             return (StatusCode::NOT_IMPLEMENTED, "GitHub OAuth not configured").into_response();
         }
     };
+
+    // Validate CSRF state parameter (after config check so misconfigured
+    // servers return 501 rather than a confusing 400)
+    if !validate_oauth_state(&query.state, &state.config.jwt_secret) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "invalid or missing OAuth state parameter",
+        )
+            .into_response();
+    }
 
     // Exchange code for access token
     let http = reqwest::Client::new();
@@ -614,11 +682,16 @@ pub async fn oauth_google_redirect(State(state): State<Arc<AppState>>) -> impl I
         }
     };
 
+    let oauth_state = generate_oauth_state(&state.config.jwt_secret);
+    let redirect_base = &state.config.oauth_redirect_base_url;
+    let raw_redirect = format!("{redirect_base}/auth/oauth/google/callback");
+    let redirect_uri = urlencoding::encode(&raw_redirect);
+    let encoded_state = urlencoding::encode(&oauth_state);
     let url = format!(
         "https://accounts.google.com/o/oauth2/v2/auth?\
          client_id={}&response_type=code&scope=openid%20email%20profile&\
-         redirect_uri={}",
-        client_id, "http://localhost:7200/auth/oauth/google/callback"
+         redirect_uri={}&state={}",
+        client_id, redirect_uri, encoded_state
     );
     axum::response::Redirect::temporary(&url).into_response()
 }
@@ -637,6 +710,19 @@ pub async fn oauth_google_callback(
         }
     };
 
+    // Validate CSRF state parameter (after config check so misconfigured
+    // servers return 501 rather than a confusing 400)
+    if !validate_oauth_state(&query.state, &state.config.jwt_secret) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "invalid or missing OAuth state parameter",
+        )
+            .into_response();
+    }
+
+    let redirect_base = &state.config.oauth_redirect_base_url;
+    let callback_uri = format!("{redirect_base}/auth/oauth/google/callback");
+
     let http = reqwest::Client::new();
     let token_resp = match http
         .post("https://oauth2.googleapis.com/token")
@@ -644,10 +730,7 @@ pub async fn oauth_google_callback(
             ("code", query.code.as_str()),
             ("client_id", &client_id),
             ("client_secret", &client_secret),
-            (
-                "redirect_uri",
-                "http://localhost:7200/auth/oauth/google/callback",
-            ),
+            ("redirect_uri", callback_uri.as_str()),
             ("grant_type", "authorization_code"),
         ])
         .send()

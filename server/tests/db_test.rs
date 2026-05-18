@@ -503,6 +503,7 @@ async fn db_participant_tracking() {
         oauth_github_client_secret: None,
         oauth_google_client_id: None,
         oauth_google_client_secret: None,
+        oauth_redirect_base_url: "http://localhost:7200".into(),
     };
 
     let state = remora_server::state::AppState::new(db.clone(), "test-token".to_string(), config);
@@ -570,6 +571,7 @@ async fn db_subscribe_and_dispatch() {
         oauth_github_client_secret: None,
         oauth_google_client_id: None,
         oauth_google_client_secret: None,
+        oauth_redirect_base_url: "http://localhost:7200".to_string(),
     };
 
     let state = std::sync::Arc::new(remora_server::state::AppState::new(

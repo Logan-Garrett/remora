@@ -17,17 +17,68 @@ Include:
 
 You can expect an acknowledgement within 48 hours and a resolution or mitigation plan within 14 days.
 
+## Auth Model
+
+Remora uses a layered authentication system with multiple credential types resolved in priority order:
+
+### Password hashing
+
+User passwords are hashed with **argon2** (the recommended memory-hard KDF). The default Argon2 configuration is used. Password hashes are stored in the `users` table and never exposed through any API endpoint.
+
+### JWT lifecycle
+
+- **Access tokens** are short-lived JWTs (default 1 hour, configurable via `REMORA_JWT_EXPIRY_SECS`). They contain the user ID, display name, and role. Signed with HMAC-SHA256 using `REMORA_JWT_SECRET`.
+- **Refresh tokens** are long-lived random strings (default 7 days). The raw token is returned to the client; only the SHA-256 hash is stored in the database.
+- **Refresh token rotation**: every refresh request atomically consumes the old token (DELETE ... RETURNING in a single query) and issues a new one. This prevents race conditions where two concurrent requests could both validate the same token.
+- If `REMORA_JWT_SECRET` is not set, the server generates a random UUID on startup and logs a warning. Tokens will not survive restarts.
+
+### OAuth
+
+GitHub and Google OAuth 2.0 are supported. The flow:
+
+1. The redirect endpoint generates a CSRF `state` parameter (UUID + HMAC signature using the JWT secret). This is self-validating, requiring no server-side storage.
+2. The callback endpoint validates the `state` signature before exchanging the authorization code.
+3. The OAuth redirect base URL is configurable via `REMORA_OAUTH_REDIRECT_URL` (default `http://localhost:7200`).
+4. If the OAuth provider email matches an existing account, the OAuth connection is linked to that account. Otherwise, a new account is created.
+
+### API key hashing
+
+API keys are prefixed with `rmk_` for identification. Only the SHA-256 hash is stored in the database. The raw key is returned once at creation time and cannot be retrieved later.
+
+### Role-based access
+
+Four roles with a numeric hierarchy:
+
+| Role | Level | Access |
+|---|---|---|
+| Admin | 4 | Full server access |
+| Member | 3 | Create sessions, invite others, use Claude |
+| Viewer | 2 | Read-only access |
+| Guest | 1 | Single session access via invite token |
+
+Role enforcement helpers (`role_level()`, `require_role()`) are implemented in `auth.rs`. RBAC enforcement in WebSocket command dispatch is planned but not yet wired in (documented as TODO in `commands.rs`).
+
+### Token resolution order
+
+The `check_any_token()` function in `lib.rs` resolves credentials in order:
+1. Admin team token (constant-time comparison)
+2. JWT (decoded and user looked up from DB)
+3. Session invite token (DB lookup, scoped to a single session)
+4. API key (SHA-256 hash lookup)
+
 ## Known Limitations
 
 These are documented design decisions, not bugs:
 
-- **WebSocket token in query string** — The team token is passed as `?token=...` during the WebSocket upgrade. The browser `WebSocket` API cannot set headers, so this is standard practice. The token may appear in reverse proxy access logs. Configure your proxy to strip query strings, or rotate the token periodically.
+- **WebSocket token in query string** -- The token is passed as `?token=...` during the WebSocket upgrade. The browser `WebSocket` API cannot set headers, so this is standard practice. The token may appear in reverse proxy access logs. Configure your proxy to strip query strings, or rotate the token periodically.
 
-- **Single shared team token** — Knowing the team token grants access to all sessions on the server. Per-session scoped tokens are on the [roadmap](ROADMAP.md).
+- **RBAC not enforced in WebSocket commands** -- Role checks exist as helpers but are not yet integrated into the command dispatch pipeline. A viewer can currently execute any command once connected. This is tracked as a TODO in `commands.rs`.
 
-- **`--dangerously-skip-permissions` is on by default** — Claude runs with full permissions on the server host unless `REMORA_SKIP_PERMISSIONS=false` is set, or `REMORA_USE_SANDBOX=true` is used to isolate Claude in a Docker container per session. Only run Remora on hosts you trust, with a token you keep secret.
+- **Permissive CORS** -- The server uses `CorsLayer::permissive()`. This is a pre-existing configuration that predates the auth system. It should be tightened to specific origins in production.
 
-- **Prompt injection** — Chat messages from session participants are passed as context to Claude. A malicious participant could craft a message designed to influence Claude's behavior. Treat the team token and session access as privileged.
+- **`--dangerously-skip-permissions` is on by default** -- Claude runs with full permissions on the server host unless `REMORA_SKIP_PERMISSIONS=false` is set, or `REMORA_USE_SANDBOX=true` is used to isolate Claude in a Docker container per session. Only run Remora on hosts you trust, with a token you keep secret.
+
+- **Prompt injection** -- Chat messages from session participants are passed as context to Claude. A malicious participant could craft a message designed to influence Claude's behavior. Treat session access as privileged.
 
 ## Trust Model
 
@@ -54,10 +105,4 @@ When a session is created, the server generates a random `owner_key` (UUID) and 
 
 ### Known limitation
 
-There is a brief window between a trusted participant disconnecting and reconnecting where their display name is available. During this window, an attacker who knows the name could theoretically connect with it and have their messages treated as trusted. This window is typically sub-second for reconnects, but it exists.
-
-### Future mitigation
-
-Per-participant invite tokens (see [ROADMAP.md](ROADMAP.md), Phase 1) will eliminate name-based impersonation entirely by tying identity to a cryptographic token rather than a display name string.
-
-More broadly, the shared team token is the weakest point in the security model — it provides no identity, no audit trail, and no per-user revocation. A dedicated auth service (built-in JWT-based or external OAuth/SSO) is planned for Phase 1 to replace token-based auth with verified identities. See the [roadmap](ROADMAP.md) for details.
+There is a brief window between a trusted participant disconnecting and reconnecting where their display name is available. During this window, an attacker who knows the name could theoretically connect with it and have their messages treated as trusted. This window is typically sub-second for reconnects, but it exists. Once RBAC enforcement is fully wired in, trust will be tied to authenticated user identity rather than display name alone.

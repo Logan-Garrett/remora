@@ -195,6 +195,11 @@ pub trait Database: Send + Sync + 'static {
     ) -> anyhow::Result<Option<(Uuid, Uuid)>>;
     async fn delete_refresh_token(&self, token_id: Uuid) -> anyhow::Result<()>;
 
+    /// Atomically consume a refresh token: DELETE ... WHERE token_hash = $1 AND expires_at > now()
+    /// RETURNING user_id. Returns the user_id if a valid token was consumed, None if the token
+    /// was already used or expired. This eliminates the validate-then-delete race condition.
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>>;
+
     // -- oauth --
     async fn upsert_oauth_connection(
         &self,
@@ -861,6 +866,15 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.delete_refresh_token(token_id).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.delete_refresh_token(token_id).await,
+        }
+    }
+
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>> {
+        match self {
+            Self::Postgres(db) => db.consume_refresh_token(token_hash).await,
+            Self::Sqlite(db) => db.consume_refresh_token(token_hash).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.consume_refresh_token(token_hash).await,
         }
     }
 

@@ -73,6 +73,7 @@ impl TestServer {
             oauth_github_client_secret: None,
             oauth_google_client_id: None,
             oauth_google_client_secret: None,
+            oauth_redirect_base_url: "http://localhost:7200".into(),
         };
 
         let state = AppState::new(db_arc.clone(), TEST_TOKEN.to_string(), config);

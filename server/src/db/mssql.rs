@@ -1389,6 +1389,28 @@ impl Database for MssqlDb {
         Ok(())
     }
 
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>> {
+        let mut conn = self.conn().await?;
+        // MSSQL supports OUTPUT clause on DELETE for atomic consume
+        let rows = conn
+            .query(
+                "DELETE FROM refresh_tokens \
+                 OUTPUT deleted.user_id \
+                 WHERE token_hash = @P1 AND expires_at > SYSDATETIMEOFFSET()",
+                &[&token_hash],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let uid = col_uuid(row, 0)?;
+                Ok(Some(uid))
+            }
+            None => Ok(None),
+        }
+    }
+
     // -- oauth --
 
     async fn upsert_oauth_connection(

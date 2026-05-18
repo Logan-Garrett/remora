@@ -19,6 +19,7 @@ remora/
 ├── server/              Rust — axum HTTP + WebSocket server (main binary: remora-server)
 │   └── src/
 │       ├── lib.rs       Router, auth, REST handlers (create/list/delete/reactivate session, health)
+│       ├── auth.rs      Authentication: JWT, password hashing (argon2), OAuth (GitHub/Google), RBAC, API keys
 │       ├── ws.rs        WebSocket upgrade, per-connection send loop, ping keepalive
 │       ├── commands.rs  Dispatch ClientMsg variants to handlers (/run, /add, /fetch, etc.)
 │       ├── state.rs     AppState: in-memory subscribers/participants/session_owners maps, Config from env
@@ -136,9 +137,18 @@ The web client is a static site with no hardcoded server URL. The URL, token, an
 
 ### Auth
 
-Single shared `REMORA_TEAM_TOKEN`. Every REST request requires `Authorization: Bearer <token>`. WebSocket upgrade passes token as `?token=` query param (browser WebSocket API cannot set headers). The `/health` endpoint is unauthenticated.
+Remora uses a layered authentication model. The server accepts multiple credential types, resolved in order:
 
-**Known limitation**: one token = full server access. Per-session tokens are on the roadmap.
+1. **Admin team token** (`REMORA_TEAM_TOKEN`) -- constant-time compared, grants full server access.
+2. **JWT** -- short-lived access tokens (default 1 hour) issued on login/OAuth. Contains user ID, display name, and role. Refreshed via refresh tokens (default 7 days) with automatic rotation.
+3. **Session invite tokens** -- scoped to a single session. Created at session creation time or via the `/sessions/:id/tokens` endpoint.
+4. **API keys** -- long-lived `rmk_` prefixed keys, SHA-256 hashed in the DB. Resolve to a user identity.
+
+Every REST request requires `Authorization: Bearer <token>`. WebSocket upgrade passes the token as `?token=` query param (browser WebSocket API cannot set headers). The `/health` endpoint is unauthenticated.
+
+**User accounts** support email+password registration (argon2 hashing) and OAuth (GitHub, Google). Refresh token rotation issues a new refresh token on every use and atomically consumes the old one.
+
+**RBAC** defines four roles (admin, member, viewer, guest) with a numeric hierarchy. Role enforcement in WebSocket command dispatch is not yet wired in (see TODO in `commands.rs`).
 
 ### Database
 
@@ -159,6 +169,8 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 - **Scan for secrets** in diffs before any push. Never commit tokens, passwords, or API keys.
 - **Display names are unique per session** (enforced at WS connect). A second connection with the same name is rejected with `ServerMsg::Error`.
 - **`/trust` and `/untrust` are restricted to the session owner** (first participant to join). Other participants receive a system error if they attempt these commands.
+- **Refresh token rotation is atomic.** The `consume_refresh_token` DB method deletes and returns the user_id in a single query, preventing race conditions.
+- **OAuth state parameters are self-validating.** HMAC-signed with the JWT secret; no server-side state storage needed.
 - **All PRs require a security review and documentation review before merge/push.** No exceptions for any code changes.
 
 ---
@@ -181,6 +193,14 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 | `REMORA_DOCKER_IMAGE` | `ubuntu:22.04` | Docker image for sandbox containers |
 | `REMORA_BACKFILL_LIMIT` | `500` | Max events sent to a client on WebSocket connect |
 | `REMORA_MAX_SESSIONS` | `100` | Max concurrent sessions (returns 429 when reached) |
+| `REMORA_JWT_SECRET` | auto-generated | Secret for signing JWTs. Auto-generated if unset (tokens won't survive restarts) |
+| `REMORA_JWT_EXPIRY_SECS` | `3600` | Access token lifetime in seconds |
+| `REMORA_REFRESH_EXPIRY_SECS` | `604800` | Refresh token lifetime in seconds (default 7 days) |
+| `REMORA_OAUTH_GITHUB_CLIENT_ID` | none | GitHub OAuth app client ID |
+| `REMORA_OAUTH_GITHUB_CLIENT_SECRET` | none | GitHub OAuth app client secret |
+| `REMORA_OAUTH_GOOGLE_CLIENT_ID` | none | Google OAuth client ID |
+| `REMORA_OAUTH_GOOGLE_CLIENT_SECRET` | none | Google OAuth client secret |
+| `REMORA_OAUTH_REDIRECT_URL` | `http://localhost:7200` | Base URL for OAuth callback redirects |
 
 ---
 

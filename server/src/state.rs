@@ -33,6 +33,7 @@ pub struct Config {
     pub oauth_github_client_secret: Option<String>,
     pub oauth_google_client_id: Option<String>,
     pub oauth_google_client_secret: Option<String>,
+    pub oauth_redirect_base_url: String,
 }
 
 impl Config {
@@ -100,6 +101,8 @@ impl Config {
             oauth_github_client_secret: std::env::var("REMORA_OAUTH_GITHUB_CLIENT_SECRET").ok(),
             oauth_google_client_id: std::env::var("REMORA_OAUTH_GOOGLE_CLIENT_ID").ok(),
             oauth_google_client_secret: std::env::var("REMORA_OAUTH_GOOGLE_CLIENT_SECRET").ok(),
+            oauth_redirect_base_url: std::env::var("REMORA_OAUTH_REDIRECT_URL")
+                .unwrap_or_else(|_| "http://localhost:7200".into()),
         }
     }
 }

@@ -72,7 +72,11 @@ async fn register_duplicate_email_fails() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 409, "duplicate email should fail");
+    assert_eq!(
+        resp.status(),
+        400,
+        "duplicate email should fail with generic error"
+    );
 }
 
 #[tokio::test]
@@ -255,6 +259,14 @@ async fn refresh_token_flow() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert!(body["access_token"].is_string());
+    assert!(
+        body["refresh_token"].is_string(),
+        "refresh response must include a new refresh_token"
+    );
+    assert!(
+        body["user"]["email"].is_string(),
+        "refresh response must include user info"
+    );
 
     // Old refresh token should be consumed (token rotation)
     let resp = client

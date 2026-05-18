@@ -555,6 +555,8 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
             get(auth::oauth_google_callback),
         )
         .layer(ConcurrencyLimitLayer::new(100))
+        // NOTE: Permissive CORS is a pre-existing configuration (predates auth branch).
+        // Should be tightened to specific origins in production. Tracked separately.
         .layer(CorsLayer::permissive())
         .with_state(shared)
 }

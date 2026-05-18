@@ -757,6 +757,18 @@ impl Database for PostgresDb {
         Ok(())
     }
 
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>> {
+        let row = sqlx::query_scalar::<_, Uuid>(
+            "DELETE FROM refresh_tokens \
+             WHERE token_hash = $1 AND expires_at > now() \
+             RETURNING user_id",
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
     // -- oauth --
 
     async fn upsert_oauth_connection(

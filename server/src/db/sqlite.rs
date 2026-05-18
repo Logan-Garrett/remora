@@ -953,6 +953,33 @@ impl Database for SqliteDb {
         Ok(())
     }
 
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>> {
+        let now_str = Utc::now().to_rfc3339();
+        // SQLite does not support DELETE ... RETURNING, so use a transaction
+        // to atomically select and delete the token.
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query_as::<_, (String, String)>(
+            "SELECT id, user_id FROM refresh_tokens \
+             WHERE token_hash = ? AND expires_at > ?",
+        )
+        .bind(token_hash)
+        .bind(&now_str)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let result = match row {
+            Some((id_str, uid_str)) => {
+                sqlx::query("DELETE FROM refresh_tokens WHERE id = ?")
+                    .bind(&id_str)
+                    .execute(&mut *tx)
+                    .await?;
+                Some(uid_str.parse::<Uuid>()?)
+            }
+            None => None,
+        };
+        tx.commit().await?;
+        Ok(result)
+    }
+
     // -- oauth --
 
     async fn upsert_oauth_connection(
