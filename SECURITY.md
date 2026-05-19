@@ -66,6 +66,27 @@ The `check_any_token()` function in `lib.rs` resolves credentials in order:
 3. Session invite token (DB lookup, scoped to a single session)
 4. API key (SHA-256 hash lookup)
 
+## Team Isolation
+
+Sessions can optionally belong to a team. When a session has a `team_id`, the server enforces that only team members can access it. Isolation is checked at two points:
+
+### REST endpoints
+All team endpoints (`/teams/:id`, `/teams/:id/members`, `/teams/:id/sessions`) verify that the authenticated user is a member of the team before returning data. Non-members receive `403 Forbidden`.
+
+### WebSocket upgrade
+When a client connects to a team-scoped session via WebSocket, the server looks up the session's `team_id`. If the session belongs to a team, the server checks that the connecting user (identified by JWT or API key) is a member of that team. Non-members receive `403 Forbidden` and the connection is rejected before upgrade.
+
+### Bypasses
+Two credential types bypass the team membership check:
+- **Admin token** (`REMORA_TEAM_TOKEN`): the server-level admin token has full access to all sessions regardless of team ownership.
+- **Session invite tokens**: these are already scoped to a single session and do not carry user identity, so they bypass the team check by design.
+
+### Team deletion behavior
+When a team is deleted, its sessions are **detached** (the `team_id` column is set to NULL) rather than deleted. This prevents accidental data loss. Detached sessions become unscoped and are accessible via the standard admin-token-authenticated endpoints.
+
+### Role enforcement within teams
+Team member roles (`admin`, `member`, `viewer`) control what actions a user can take within the team. Admins can manage members and team settings. Members can create team sessions. Viewers have read access to team data. Role checks happen at the handler level before any DB mutation.
+
 ## Known Limitations
 
 These are documented design decisions, not bugs:
