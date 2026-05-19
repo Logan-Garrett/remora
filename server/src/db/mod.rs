@@ -5,7 +5,7 @@ pub mod sqlite;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use remora_common::Event;
+use remora_common::{ApiKeyInfo, Event, SessionToken, User};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -117,6 +117,17 @@ pub trait Database: Send + Sync + 'static {
     async fn set_owner_key(&self, session_id: Uuid, key: &str) -> anyhow::Result<()>;
     async fn get_owner_key(&self, session_id: Uuid) -> anyhow::Result<Option<String>>;
 
+    // -- session tokens --
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String>;
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>>;
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()>;
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()>;
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>>;
+
     // -- trusted participants --
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
     async fn untrust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()>;
@@ -156,6 +167,62 @@ pub trait Database: Send + Sync + 'static {
     async fn get_idle_sessions(&self, idle_timeout_secs: u64) -> anyhow::Result<Vec<Uuid>>;
 
     async fn clear_idle_since_for(&self, session_id: Uuid) -> anyhow::Result<()>;
+
+    // -- users --
+    async fn create_user(
+        &self,
+        email: &str,
+        display_name: &str,
+        password_hash: Option<&str>,
+        role: &str,
+    ) -> anyhow::Result<Uuid>;
+    async fn get_user_by_email(&self, email: &str) -> anyhow::Result<Option<User>>;
+    async fn get_user_by_id(&self, id: Uuid) -> anyhow::Result<Option<User>>;
+    /// Returns the password_hash for login verification (separate from User to avoid leaking it).
+    async fn get_password_hash(&self, email: &str) -> anyhow::Result<Option<String>>;
+
+    // -- refresh tokens --
+    async fn store_refresh_token(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> anyhow::Result<Uuid>;
+    /// Returns (token_id, user_id) if the token is valid and not expired.
+    async fn validate_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid)>>;
+    async fn delete_refresh_token(&self, token_id: Uuid) -> anyhow::Result<()>;
+
+    /// Atomically consume a refresh token: DELETE ... WHERE token_hash = $1 AND expires_at > now()
+    /// RETURNING user_id. Returns the user_id if a valid token was consumed, None if the token
+    /// was already used or expired. This eliminates the validate-then-delete race condition.
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>>;
+
+    // -- oauth --
+    async fn upsert_oauth_connection(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<()>;
+    async fn get_user_by_oauth(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<Option<User>>;
+
+    // -- api keys --
+    async fn create_api_key(
+        &self,
+        user_id: Uuid,
+        key_hash: &str,
+        label: &str,
+    ) -> anyhow::Result<Uuid>;
+    async fn validate_api_key(&self, key_hash: &str) -> anyhow::Result<Option<User>>;
+    async fn list_api_keys(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiKeyInfo>>;
+    async fn revoke_api_key(&self, key_id: Uuid, user_id: Uuid) -> anyhow::Result<()>;
 
     // -- notifications --
     /// Start listening for new-event notifications.  Returns a receiver
@@ -533,6 +600,51 @@ impl Database for DatabaseBackend {
         }
     }
 
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
+        match self {
+            Self::Postgres(db) => db.create_session_token(session_id, label).await,
+            Self::Sqlite(db) => db.create_session_token(session_id, label).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.create_session_token(session_id, label).await,
+        }
+    }
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
+        match self {
+            Self::Postgres(db) => db.validate_session_token(token).await,
+            Self::Sqlite(db) => db.validate_session_token(token).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.validate_session_token(token).await,
+        }
+    }
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.revoke_session_token(token).await,
+            Self::Sqlite(db) => db.revoke_session_token(token).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.revoke_session_token(token).await,
+        }
+    }
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.revoke_session_token_by_id(session_id, token_id).await,
+            Self::Sqlite(db) => db.revoke_session_token_by_id(session_id, token_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.revoke_session_token_by_id(session_id, token_id).await,
+        }
+    }
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>> {
+        match self {
+            Self::Postgres(db) => db.list_session_tokens(session_id).await,
+            Self::Sqlite(db) => db.list_session_tokens(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_session_tokens(session_id).await,
+        }
+    }
+
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
         match self {
             Self::Postgres(db) => db.trust_participant(session_id, name).await,
@@ -662,6 +774,182 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.clear_idle_since_for(session_id).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.clear_idle_since_for(session_id).await,
+        }
+    }
+
+    // -- users --
+    async fn create_user(
+        &self,
+        email: &str,
+        display_name: &str,
+        password_hash: Option<&str>,
+        role: &str,
+    ) -> anyhow::Result<Uuid> {
+        match self {
+            Self::Postgres(db) => {
+                db.create_user(email, display_name, password_hash, role)
+                    .await
+            }
+            Self::Sqlite(db) => {
+                db.create_user(email, display_name, password_hash, role)
+                    .await
+            }
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => {
+                db.create_user(email, display_name, password_hash, role)
+                    .await
+            }
+        }
+    }
+    async fn get_user_by_email(&self, email: &str) -> anyhow::Result<Option<User>> {
+        match self {
+            Self::Postgres(db) => db.get_user_by_email(email).await,
+            Self::Sqlite(db) => db.get_user_by_email(email).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_user_by_email(email).await,
+        }
+    }
+    async fn get_user_by_id(&self, id: Uuid) -> anyhow::Result<Option<User>> {
+        match self {
+            Self::Postgres(db) => db.get_user_by_id(id).await,
+            Self::Sqlite(db) => db.get_user_by_id(id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_user_by_id(id).await,
+        }
+    }
+    async fn get_password_hash(&self, email: &str) -> anyhow::Result<Option<String>> {
+        match self {
+            Self::Postgres(db) => db.get_password_hash(email).await,
+            Self::Sqlite(db) => db.get_password_hash(email).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_password_hash(email).await,
+        }
+    }
+
+    // -- refresh tokens --
+    async fn store_refresh_token(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> anyhow::Result<Uuid> {
+        match self {
+            Self::Postgres(db) => {
+                db.store_refresh_token(user_id, token_hash, expires_at)
+                    .await
+            }
+            Self::Sqlite(db) => {
+                db.store_refresh_token(user_id, token_hash, expires_at)
+                    .await
+            }
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => {
+                db.store_refresh_token(user_id, token_hash, expires_at)
+                    .await
+            }
+        }
+    }
+    async fn validate_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid)>> {
+        match self {
+            Self::Postgres(db) => db.validate_refresh_token(token_hash).await,
+            Self::Sqlite(db) => db.validate_refresh_token(token_hash).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.validate_refresh_token(token_hash).await,
+        }
+    }
+    async fn delete_refresh_token(&self, token_id: Uuid) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.delete_refresh_token(token_id).await,
+            Self::Sqlite(db) => db.delete_refresh_token(token_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.delete_refresh_token(token_id).await,
+        }
+    }
+
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>> {
+        match self {
+            Self::Postgres(db) => db.consume_refresh_token(token_hash).await,
+            Self::Sqlite(db) => db.consume_refresh_token(token_hash).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.consume_refresh_token(token_hash).await,
+        }
+    }
+
+    // -- oauth --
+    async fn upsert_oauth_connection(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => {
+                db.upsert_oauth_connection(user_id, provider, provider_user_id)
+                    .await
+            }
+            Self::Sqlite(db) => {
+                db.upsert_oauth_connection(user_id, provider, provider_user_id)
+                    .await
+            }
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => {
+                db.upsert_oauth_connection(user_id, provider, provider_user_id)
+                    .await
+            }
+        }
+    }
+    async fn get_user_by_oauth(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<Option<User>> {
+        match self {
+            Self::Postgres(db) => db.get_user_by_oauth(provider, provider_user_id).await,
+            Self::Sqlite(db) => db.get_user_by_oauth(provider, provider_user_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_user_by_oauth(provider, provider_user_id).await,
+        }
+    }
+
+    // -- api keys --
+    async fn create_api_key(
+        &self,
+        user_id: Uuid,
+        key_hash: &str,
+        label: &str,
+    ) -> anyhow::Result<Uuid> {
+        match self {
+            Self::Postgres(db) => db.create_api_key(user_id, key_hash, label).await,
+            Self::Sqlite(db) => db.create_api_key(user_id, key_hash, label).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.create_api_key(user_id, key_hash, label).await,
+        }
+    }
+    async fn validate_api_key(&self, key_hash: &str) -> anyhow::Result<Option<User>> {
+        match self {
+            Self::Postgres(db) => db.validate_api_key(key_hash).await,
+            Self::Sqlite(db) => db.validate_api_key(key_hash).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.validate_api_key(key_hash).await,
+        }
+    }
+    async fn list_api_keys(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiKeyInfo>> {
+        match self {
+            Self::Postgres(db) => db.list_api_keys(user_id).await,
+            Self::Sqlite(db) => db.list_api_keys(user_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_api_keys(user_id).await,
+        }
+    }
+    async fn revoke_api_key(&self, key_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.revoke_api_key(key_id, user_id).await,
+            Self::Sqlite(db) => db.revoke_api_key(key_id, user_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.revoke_api_key(key_id, user_id).await,
         }
     }
 

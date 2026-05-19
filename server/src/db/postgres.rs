@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use remora_common::Event;
+use remora_common::{ApiKeyInfo, Event, SessionToken, User};
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -566,6 +566,57 @@ impl Database for PostgresDb {
         Ok(row.flatten())
     }
 
+    // -- session tokens --
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
+        let token = format!("rmr_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        sqlx::query("INSERT INTO session_tokens (session_id, token, label) VALUES ($1, $2, $3)")
+            .bind(session_id)
+            .bind(&token)
+            .bind(label)
+            .execute(&self.pool)
+            .await?;
+        Ok(token)
+    }
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
+        let row = sqlx::query_scalar::<_, Uuid>(
+            "SELECT session_id FROM session_tokens WHERE token = $1 AND revoked_at IS NULL",
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE session_tokens SET revoked_at = now() WHERE token = $1")
+            .bind(token)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE session_tokens SET revoked_at = now() WHERE id = $1 AND session_id = $2 AND revoked_at IS NULL").bind(token_id).bind(session_id).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>> {
+        let rows = sqlx::query_as::<_, (i64, Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>)>("SELECT id, session_id, label, created_at, revoked_at FROM session_tokens WHERE session_id = $1 ORDER BY id").bind(session_id).fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, session_id, label, created_at, revoked_at)| SessionToken {
+                    id,
+                    session_id,
+                    label,
+                    created_at,
+                    revoked: revoked_at.is_some(),
+                },
+            )
+            .collect())
+    }
+
     // -- trusted participants --
 
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
@@ -598,6 +649,256 @@ impl Database for PostgresDb {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(|(n,)| n).collect())
+    }
+
+    // -- users --
+
+    async fn create_user(
+        &self,
+        email: &str,
+        display_name: &str,
+        password_hash: Option<&str>,
+        role: &str,
+    ) -> anyhow::Result<Uuid> {
+        let id = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO users (email, display_name, password_hash, role) \
+             VALUES ($1, $2, $3, $4) RETURNING id",
+        )
+        .bind(email)
+        .bind(display_name)
+        .bind(password_hash)
+        .bind(role)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> anyhow::Result<Option<User>> {
+        let row = sqlx::query_as::<_, (Uuid, String, String, String, DateTime<Utc>)>(
+            "SELECT id, email, display_name, role, created_at FROM users WHERE email = $1",
+        )
+        .bind(email)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, email, display_name, role, created_at)| User {
+            id,
+            email,
+            display_name,
+            role,
+            created_at,
+        }))
+    }
+
+    async fn get_user_by_id(&self, id: Uuid) -> anyhow::Result<Option<User>> {
+        let row = sqlx::query_as::<_, (Uuid, String, String, String, DateTime<Utc>)>(
+            "SELECT id, email, display_name, role, created_at FROM users WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, email, display_name, role, created_at)| User {
+            id,
+            email,
+            display_name,
+            role,
+            created_at,
+        }))
+    }
+
+    async fn get_password_hash(&self, email: &str) -> anyhow::Result<Option<String>> {
+        let row = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT password_hash FROM users WHERE email = $1",
+        )
+        .bind(email)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.flatten())
+    }
+
+    // -- refresh tokens --
+
+    async fn store_refresh_token(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> anyhow::Result<Uuid> {
+        let id = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) \
+             VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(user_id)
+        .bind(token_hash)
+        .bind(expires_at)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn validate_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid)>> {
+        let row = sqlx::query_as::<_, (Uuid, Uuid)>(
+            "SELECT id, user_id FROM refresh_tokens \
+             WHERE token_hash = $1 AND expires_at > now()",
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn delete_refresh_token(&self, token_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM refresh_tokens WHERE id = $1")
+            .bind(token_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>> {
+        let row = sqlx::query_scalar::<_, Uuid>(
+            "DELETE FROM refresh_tokens \
+             WHERE token_hash = $1 AND expires_at > now() \
+             RETURNING user_id",
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    // -- oauth --
+
+    async fn upsert_oauth_connection(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO oauth_connections (user_id, provider, provider_user_id) \
+             VALUES ($1, $2, $3) \
+             ON CONFLICT (provider, provider_user_id) DO UPDATE SET user_id = $1",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(provider_user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_user_by_oauth(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<Option<User>> {
+        let row = sqlx::query_as::<_, (Uuid, String, String, String, DateTime<Utc>)>(
+            "SELECT u.id, u.email, u.display_name, u.role, u.created_at \
+             FROM users u JOIN oauth_connections o ON u.id = o.user_id \
+             WHERE o.provider = $1 AND o.provider_user_id = $2",
+        )
+        .bind(provider)
+        .bind(provider_user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, email, display_name, role, created_at)| User {
+            id,
+            email,
+            display_name,
+            role,
+            created_at,
+        }))
+    }
+
+    // -- api keys --
+
+    async fn create_api_key(
+        &self,
+        user_id: Uuid,
+        key_hash: &str,
+        label: &str,
+    ) -> anyhow::Result<Uuid> {
+        let id = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO api_keys (user_id, key_hash, label) \
+             VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(user_id)
+        .bind(key_hash)
+        .bind(label)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn validate_api_key(&self, key_hash: &str) -> anyhow::Result<Option<User>> {
+        let row = sqlx::query_as::<_, (Uuid, String, String, String, DateTime<Utc>)>(
+            "SELECT u.id, u.email, u.display_name, u.role, u.created_at \
+             FROM users u JOIN api_keys k ON u.id = k.user_id \
+             WHERE k.key_hash = $1 AND k.revoked_at IS NULL",
+        )
+        .bind(key_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        // Update last_used_at on successful lookup
+        if row.is_some() {
+            let _ = sqlx::query("UPDATE api_keys SET last_used_at = now() WHERE key_hash = $1")
+                .bind(key_hash)
+                .execute(&self.pool)
+                .await;
+        }
+        Ok(row.map(|(id, email, display_name, role, created_at)| User {
+            id,
+            email,
+            display_name,
+            role,
+            created_at,
+        }))
+    }
+
+    async fn list_api_keys(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiKeyInfo>> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                DateTime<Utc>,
+                Option<DateTime<Utc>>,
+                Option<DateTime<Utc>>,
+            ),
+        >(
+            "SELECT id, label, created_at, last_used_at, revoked_at \
+             FROM api_keys WHERE user_id = $1 ORDER BY created_at",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, label, created_at, last_used_at, revoked_at)| ApiKeyInfo {
+                    id,
+                    label,
+                    created_at,
+                    last_used_at,
+                    revoked: revoked_at.is_some(),
+                },
+            )
+            .collect())
+    }
+
+    async fn revoke_api_key(&self, key_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE api_keys SET revoked_at = now() \
+             WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(key_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     // -- notifications --

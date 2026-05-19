@@ -8,6 +8,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ## [Unreleased]
 
+### Added
+- **Phase 1 Auth: User accounts** -- email + password registration with argon2 hashing, login, JWT access tokens, refresh token rotation
+- **Phase 1 Auth: OAuth** -- GitHub and Google OAuth 2.0 login with CSRF `state` parameter validation (HMAC-signed, self-validating)
+- **Phase 1 Auth: API keys** -- per-user `rmk_` prefixed API keys, SHA-256 hashed at rest. CRUD endpoints for key management
+- **Phase 1 Auth: Session invite tokens** -- scoped tokens granting access to a single session. Create, list, and revoke via REST API
+- **Phase 1 Auth: RBAC foundations** -- role hierarchy (admin > member > viewer > guest) with `role_level()` and `require_role()` helpers
+- **Phase 1 Auth: Layered token resolution** -- `check_any_token()` resolves admin token, JWT, session token, or API key in priority order
+- New DB tables: `users`, `refresh_tokens`, `oauth_connections`, `api_keys`, `session_tokens`
+- New endpoints: `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/api-keys`, `/auth/oauth/github`, `/auth/oauth/google` (+ callbacks)
+- New endpoints: `/sessions/:id/tokens` (create, list, revoke session invite tokens)
+- New env vars: `REMORA_JWT_SECRET`, `REMORA_JWT_EXPIRY_SECS`, `REMORA_REFRESH_EXPIRY_SECS`, `REMORA_OAUTH_GITHUB_CLIENT_ID`, `REMORA_OAUTH_GITHUB_CLIENT_SECRET`, `REMORA_OAUTH_GOOGLE_CLIENT_ID`, `REMORA_OAUTH_GOOGLE_CLIENT_SECRET`, `REMORA_OAUTH_REDIRECT_URL`
+
+### Security
+- Refresh endpoint now returns a new refresh token (previously only returned access_token, permanently losing the client's refresh token)
+- Refresh token consumption is atomic (`consume_refresh_token` DB method) to prevent race conditions in token rotation
+- OAuth redirects include CSRF `state` parameter validated via HMAC
+- OAuth redirect URI is configurable via `REMORA_OAUTH_REDIRECT_URL` (previously hardcoded to localhost)
+- Registration no longer leaks email existence (returns generic "registration failed" instead of "email already registered")
+
+### Changed
+- `server/src/auth.rs` added with all auth logic (JWT, password hashing, OAuth, RBAC, REST handlers)
+- Database trait extended with user, refresh token, OAuth, and API key methods (all 3 backends: Postgres, SQLite, MSSQL)
+
 ---
 
 ## [0.9.3] — 2026-05-04

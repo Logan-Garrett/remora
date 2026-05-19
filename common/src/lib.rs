@@ -94,8 +94,39 @@ pub struct SessionInfo {
     /// Only included in the create-session response; `None` in list responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invite_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionToken {
+    pub id: i64,
+    pub session_id: Uuid,
+    pub label: String,
+    pub created_at: DateTime<Utc>,
+    pub revoked: bool,
 }
 
 fn default_status() -> String {
     "active".to_string()
+}
+
+/// A registered user account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Summary of an API key (the actual secret is never stored or returned).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyInfo {
+    pub id: Uuid,
+    pub label: String,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub revoked: bool,
 }

@@ -13,6 +13,17 @@ use uuid::Uuid;
 ///
 /// `verified_author` is the authenticated name from the WebSocket connection
 /// and is used for ALL event insertions, ignoring any client-supplied author field.
+///
+/// TODO(RBAC): Role-based access control is not yet enforced here. The WebSocket
+/// connection authenticates the user but does not propagate the user's role into
+/// this dispatch context. Once role info is available (e.g. passed alongside
+/// `verified_author`), enforce the following policy:
+///
+/// - Viewer/Guest: can only use /who and /help. All other commands return an error.
+/// - Member: full access except admin-only commands (/kick, /trust, /untrust).
+/// - Admin: full access to all commands.
+///
+/// See `auth::role_level()` and `auth::require_role()` for the existing helpers.
 pub async fn dispatch(
     state: Arc<AppState>,
     session_id: Uuid,

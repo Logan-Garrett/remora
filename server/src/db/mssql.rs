@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use bb8::Pool;
 use bb8_tiberius::ConnectionManager;
 use chrono::{DateTime, Utc};
-use remora_common::Event;
+use remora_common::{ApiKeyInfo, Event, SessionToken, User};
 use serde_json::Value;
 use tiberius::{AuthMethod, Config};
 use tokio::sync::broadcast;
@@ -196,6 +196,26 @@ impl Database for MssqlDb {
             (
                 "20260501000002_owner_key.sql",
                 include_str!("../../../migrations/mssql/20260501000002_owner_key.sql"),
+            ),
+            (
+                "20260518000000_session_tokens.sql",
+                include_str!("../../../migrations/mssql/20260518000000_session_tokens.sql"),
+            ),
+            (
+                "20260518000001_users.sql",
+                include_str!("../../../migrations/mssql/20260518000001_users.sql"),
+            ),
+            (
+                "20260518000002_refresh_tokens.sql",
+                include_str!("../../../migrations/mssql/20260518000002_refresh_tokens.sql"),
+            ),
+            (
+                "20260518000003_oauth_connections.sql",
+                include_str!("../../../migrations/mssql/20260518000003_oauth_connections.sql"),
+            ),
+            (
+                "20260518000004_api_keys.sql",
+                include_str!("../../../migrations/mssql/20260518000004_api_keys.sql"),
             ),
         ];
 
@@ -1091,6 +1111,75 @@ impl Database for MssqlDb {
         Ok(key)
     }
 
+    // -- session tokens --
+    async fn create_session_token(&self, session_id: Uuid, label: &str) -> anyhow::Result<String> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let token = format!("rmr_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        conn.execute(
+            "INSERT INTO session_tokens (session_id, token, label) VALUES (@P1, @P2, @P3)",
+            &[&tib_id, &token.as_str(), &label],
+        )
+        .await?;
+        Ok(token)
+    }
+    async fn validate_session_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT session_id FROM session_tokens WHERE token = @P1 AND revoked_at IS NULL",
+                &[&token],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => Ok(Some(col_uuid(row, 0)?)),
+            None => Ok(None),
+        }
+    }
+    async fn revoke_session_token(&self, token: &str) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        conn.execute(
+            "UPDATE session_tokens SET revoked_at = SYSDATETIMEOFFSET() WHERE token = @P1",
+            &[&token],
+        )
+        .await?;
+        Ok(())
+    }
+    async fn revoke_session_token_by_id(
+        &self,
+        session_id: Uuid,
+        token_id: i64,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute("UPDATE session_tokens SET revoked_at = SYSDATETIMEOFFSET() WHERE id = @P1 AND session_id = @P2 AND revoked_at IS NULL", &[&token_id, &tib_id]).await?;
+        Ok(())
+    }
+    async fn list_session_tokens(&self, session_id: Uuid) -> anyhow::Result<Vec<SessionToken>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn.query("SELECT id, session_id, label, created_at, revoked_at FROM session_tokens WHERE session_id = @P1 ORDER BY id", &[&tib_id]).await?.into_first_result().await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_i64(row, 0)?;
+            let sid = col_uuid(row, 1)?;
+            let label = col_str(row, 2)?;
+            let created_at = col_datetime(row, 3)?;
+            let revoked_at: Option<chrono::DateTime<chrono::FixedOffset>> =
+                row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(4)?;
+            result.push(SessionToken {
+                id,
+                session_id: sid,
+                label,
+                created_at,
+                revoked: revoked_at.is_some(),
+            });
+        }
+        Ok(result)
+    }
+
     // -- trusted participants --
 
     async fn trust_participant(&self, session_id: Uuid, name: &str) -> anyhow::Result<()> {
@@ -1137,6 +1226,349 @@ impl Database for MssqlDb {
             .map(|s| s.to_string())
             .collect();
         Ok(names)
+    }
+
+    // -- users --
+
+    async fn create_user(
+        &self,
+        email: &str,
+        display_name: &str,
+        password_hash: Option<&str>,
+        role: &str,
+    ) -> anyhow::Result<Uuid> {
+        let mut conn = self.conn().await?;
+        let id = Uuid::new_v4();
+        let tib_id = tiberius::Uuid::from_bytes(*id.as_bytes());
+        let pw: &str = password_hash.unwrap_or("");
+        let has_pw = password_hash.is_some();
+        if has_pw {
+            conn.execute(
+                "INSERT INTO users (id, email, display_name, password_hash, role) \
+                 VALUES (@P1, @P2, @P3, @P4, @P5)",
+                &[&tib_id, &email, &display_name, &pw, &role],
+            )
+            .await?;
+        } else {
+            conn.execute(
+                "INSERT INTO users (id, email, display_name, password_hash, role) \
+                 VALUES (@P1, @P2, @P3, NULL, @P4)",
+                &[&tib_id, &email, &display_name, &role],
+            )
+            .await?;
+        }
+        Ok(id)
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> anyhow::Result<Option<User>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT id, email, display_name, role, created_at FROM users WHERE email = @P1",
+                &[&email],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let id = col_uuid(row, 0)?;
+                let email = col_str(row, 1)?;
+                let display_name = col_str(row, 2)?;
+                let role = col_str(row, 3)?;
+                let created_at = col_datetime(row, 4)?;
+                Ok(Some(User {
+                    id,
+                    email,
+                    display_name,
+                    role,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn get_user_by_id(&self, id: Uuid) -> anyhow::Result<Option<User>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT id, email, display_name, role, created_at FROM users WHERE id = @P1",
+                &[&tib_id],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let uid = col_uuid(row, 0)?;
+                let email = col_str(row, 1)?;
+                let display_name = col_str(row, 2)?;
+                let role = col_str(row, 3)?;
+                let created_at = col_datetime(row, 4)?;
+                Ok(Some(User {
+                    id: uid,
+                    email,
+                    display_name,
+                    role,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn get_password_hash(&self, email: &str) -> anyhow::Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT password_hash FROM users WHERE email = @P1",
+                &[&email],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.try_get::<&str, _>(0).ok().flatten())
+            .map(|s| s.to_string()))
+    }
+
+    // -- refresh tokens --
+
+    async fn store_refresh_token(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> anyhow::Result<Uuid> {
+        let mut conn = self.conn().await?;
+        let id = Uuid::new_v4();
+        let tib_id = tiberius::Uuid::from_bytes(*id.as_bytes());
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        let exp_dto = chrono::DateTime::<chrono::FixedOffset>::from(expires_at);
+        conn.execute(
+            "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) \
+             VALUES (@P1, @P2, @P3, @P4)",
+            &[&tib_id, &tib_uid, &token_hash, &exp_dto],
+        )
+        .await?;
+        Ok(id)
+    }
+
+    async fn validate_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid)>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT id, user_id FROM refresh_tokens \
+                 WHERE token_hash = @P1 AND expires_at > SYSDATETIMEOFFSET()",
+                &[&token_hash],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let id = col_uuid(row, 0)?;
+                let uid = col_uuid(row, 1)?;
+                Ok(Some((id, uid)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn delete_refresh_token(&self, token_id: Uuid) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*token_id.as_bytes());
+        conn.execute("DELETE FROM refresh_tokens WHERE id = @P1", &[&tib_id])
+            .await?;
+        Ok(())
+    }
+
+    async fn consume_refresh_token(&self, token_hash: &str) -> anyhow::Result<Option<Uuid>> {
+        let mut conn = self.conn().await?;
+        // MSSQL supports OUTPUT clause on DELETE for atomic consume
+        let rows = conn
+            .query(
+                "DELETE FROM refresh_tokens \
+                 OUTPUT deleted.user_id \
+                 WHERE token_hash = @P1 AND expires_at > SYSDATETIMEOFFSET()",
+                &[&token_hash],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let uid = col_uuid(row, 0)?;
+                Ok(Some(uid))
+            }
+            None => Ok(None),
+        }
+    }
+
+    // -- oauth --
+
+    async fn upsert_oauth_connection(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        conn.execute(
+            "MERGE INTO oauth_connections AS target \
+             USING (SELECT @P1 AS user_id, @P2 AS provider, @P3 AS provider_user_id) AS source \
+             ON target.provider = source.provider AND target.provider_user_id = source.provider_user_id \
+             WHEN MATCHED THEN UPDATE SET user_id = source.user_id \
+             WHEN NOT MATCHED THEN INSERT (user_id, provider, provider_user_id) \
+                 VALUES (source.user_id, source.provider, source.provider_user_id);",
+            &[&tib_uid, &provider, &provider_user_id],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn get_user_by_oauth(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> anyhow::Result<Option<User>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT u.id, u.email, u.display_name, u.role, u.created_at \
+                 FROM users u JOIN oauth_connections o ON u.id = o.user_id \
+                 WHERE o.provider = @P1 AND o.provider_user_id = @P2",
+                &[&provider, &provider_user_id],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let id = col_uuid(row, 0)?;
+                let email = col_str(row, 1)?;
+                let display_name = col_str(row, 2)?;
+                let role = col_str(row, 3)?;
+                let created_at = col_datetime(row, 4)?;
+                Ok(Some(User {
+                    id,
+                    email,
+                    display_name,
+                    role,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    // -- api keys --
+
+    async fn create_api_key(
+        &self,
+        user_id: Uuid,
+        key_hash: &str,
+        label: &str,
+    ) -> anyhow::Result<Uuid> {
+        let mut conn = self.conn().await?;
+        let id = Uuid::new_v4();
+        let tib_id = tiberius::Uuid::from_bytes(*id.as_bytes());
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        conn.execute(
+            "INSERT INTO api_keys (id, user_id, key_hash, label) VALUES (@P1, @P2, @P3, @P4)",
+            &[&tib_id, &tib_uid, &key_hash, &label],
+        )
+        .await?;
+        Ok(id)
+    }
+
+    async fn validate_api_key(&self, key_hash: &str) -> anyhow::Result<Option<User>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT u.id, u.email, u.display_name, u.role, u.created_at \
+                 FROM users u JOIN api_keys k ON u.id = k.user_id \
+                 WHERE k.key_hash = @P1 AND k.revoked_at IS NULL",
+                &[&key_hash],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        if let Some(row) = rows.first() {
+            // Update last_used_at
+            let _ = conn
+                .execute(
+                    "UPDATE api_keys SET last_used_at = SYSDATETIMEOFFSET() WHERE key_hash = @P1",
+                    &[&key_hash],
+                )
+                .await;
+            let id = col_uuid(row, 0)?;
+            let email = col_str(row, 1)?;
+            let display_name = col_str(row, 2)?;
+            let role = col_str(row, 3)?;
+            let created_at = col_datetime(row, 4)?;
+            Ok(Some(User {
+                id,
+                email,
+                display_name,
+                role,
+                created_at,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn list_api_keys(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiKeyInfo>> {
+        let mut conn = self.conn().await?;
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT id, label, created_at, last_used_at, revoked_at \
+                 FROM api_keys WHERE user_id = @P1 ORDER BY created_at",
+                &[&tib_uid],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_uuid(row, 0)?;
+            let label = col_str(row, 1)?;
+            let created_at = col_datetime(row, 2)?;
+            let last_used_at: Option<chrono::DateTime<chrono::FixedOffset>> =
+                row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(3)?;
+            let revoked_at: Option<chrono::DateTime<chrono::FixedOffset>> =
+                row.try_get::<chrono::DateTime<chrono::FixedOffset>, _>(4)?;
+            result.push(ApiKeyInfo {
+                id,
+                label,
+                created_at,
+                last_used_at: last_used_at.map(|d| d.with_timezone(&Utc)),
+                revoked: revoked_at.is_some(),
+            });
+        }
+        Ok(result)
+    }
+
+    async fn revoke_api_key(&self, key_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_kid = tiberius::Uuid::from_bytes(*key_id.as_bytes());
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        conn.execute(
+            "UPDATE api_keys SET revoked_at = SYSDATETIMEOFFSET() \
+             WHERE id = @P1 AND user_id = @P2 AND revoked_at IS NULL",
+            &[&tib_kid, &tib_uid],
+        )
+        .await?;
+        Ok(())
     }
 
     // -- notifications --

@@ -33,6 +33,14 @@ async fn state_try_participant_join_leave() {
         allowed_tools: vec![],
         backfill_limit: 500,
         max_sessions: 100,
+        jwt_secret: "test-jwt-secret".into(),
+        jwt_expiry_secs: 3600,
+        refresh_expiry_secs: 604800,
+        oauth_github_client_id: None,
+        oauth_github_client_secret: None,
+        oauth_google_client_id: None,
+        oauth_google_client_secret: None,
+        oauth_redirect_base_url: "http://localhost:7200".into(),
     };
 
     let state = remora_server::state::AppState::new(db.clone(), "test-token".to_string(), config);
@@ -92,6 +100,14 @@ async fn state_subscribe_receives_dispatched_events() {
         allowed_tools: vec![],
         backfill_limit: 500,
         max_sessions: 100,
+        jwt_secret: "test-jwt-secret".into(),
+        jwt_expiry_secs: 3600,
+        refresh_expiry_secs: 604800,
+        oauth_github_client_id: None,
+        oauth_github_client_secret: None,
+        oauth_google_client_id: None,
+        oauth_google_client_secret: None,
+        oauth_redirect_base_url: "http://localhost:7200".into(),
     };
 
     let state = std::sync::Arc::new(remora_server::state::AppState::new(

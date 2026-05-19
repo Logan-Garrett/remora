@@ -44,45 +44,38 @@ OAuth / SSO       Cross-team         Helm / Compose       Allowlist UI        Mo
 
 The current model is a single `REMORA_TEAM_TOKEN` — one password for everything. This is fine for a single team on a private server but blocks every other use case.
 
-### Per-session invite tokens
+### Per-session invite tokens -- DONE
 Each session gets its own token scoped to that session only. You can invite someone to one conversation without giving them access to anything else on the server. The server-level token becomes an admin credential.
 
-```
-Current:  one token → full server access
-Target:   server token (admin) + session tokens (scoped invites)
-```
-
-The `session_runs.owner_instance` column and the existing per-session DB structure already anticipate this — sessions are first-class objects, the auth layer just hasn't caught up.
+Implemented: sessions get an invite token on creation. CRUD endpoints at `/sessions/:id/tokens`. Token validation integrated into `check_any_token()`.
 
 ### Per-participant invite tokens
 The current trust model uses display names to identify trusted participants. This works but has a brief impersonation window between disconnect and reconnect. Per-participant invite tokens would tie trust to a cryptographic token rather than a name string:
 
 - Each participant gets a unique, random token when invited to a session
 - The token authenticates the WebSocket connection and determines the display name
-- Trust is granted to the token, not the name — eliminating the impersonation window
+- Trust is granted to the token, not the name -- eliminating the impersonation window
 - Tokens can be revoked individually without affecting other participants
 
 This builds on per-session invite tokens (above) and eliminates the last name-based identity assumption in the trust system.
 
-### User accounts
-- Register / login with email + password
-- Display names tied to accounts, not just a connection-time string
-- Personal session list showing sessions you created or were invited to
+### User accounts -- DONE
+- Register / login with email + password (argon2 hashing)
+- JWT access tokens + refresh token rotation
+- `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/me` endpoints
+- Display names tied to user accounts for JWT/API-key authenticated connections
 
-### Auth service
-The shared team token is the weakest link in the security model — it provides no identity, no audit trail, and no revocation beyond rotating the entire token. An auth service (dedicated or integrated) should replace the token as the primary authentication mechanism. This could be:
-- A lightweight built-in auth service (JWT-based, user accounts in the existing DB)
-- An external identity provider via OAuth / SSO (preferred for teams already using one)
-- Both: internal auth as default, external IdP as an integration
+### Auth service -- DONE
+Built-in JWT-based auth integrated into the existing DB. Short-lived access tokens (default 1h) with refresh token rotation (default 7d). Atomic token consumption prevents race conditions. All three DB backends (Postgres, SQLite, MSSQL) supported.
 
-The auth service should issue short-lived session tokens that tie a WebSocket connection to a verified identity, eliminating the name-based trust model entirely.
+### OAuth / SSO -- PARTIALLY DONE
+- **OAuth 2.0** -- GitHub and Google sign-in implemented with CSRF state validation
+- **SAML / SSO** -- not yet implemented (Okta, Azure AD, Google Workspace)
+- **API keys per user** -- DONE. `rmk_` prefixed keys with SHA-256 hashing
 
-### OAuth / SSO
-- **OAuth 2.0** — sign in with GitHub, Google, or any provider
-- **SAML / SSO** — enterprise login via Okta, Azure AD, Google Workspace
-- **API keys per user** — for CLI and plugin auth without browser flows
+### Role-based access -- IN PROGRESS
+Role hierarchy and enforcement helpers are implemented. RBAC enforcement in WebSocket command dispatch is not yet wired in (tracked as TODO in `commands.rs`).
 
-### Role-based access
 | Role | Can do |
 |---|---|
 | Admin | Full server access, manage users, set quotas |
