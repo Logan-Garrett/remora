@@ -23,7 +23,7 @@ Multiple remoras can attach to the same host. That's the whole point.
 ## Screenshots
 
 ### Web Client — Login
-Connect from any browser. Enter your server URL, team token, and display name.
+Connect from any browser. Enter your server URL, team token, and display name. User account login and OAuth are available via the API but not yet in the web UI.
 
 ![Web Login](docs/images/web_login.png)
 
@@ -169,14 +169,14 @@ For **SQLite**, set `REMORA_DB_PROVIDER=sqlite` and `DATABASE_URL=sqlite:remora.
 | `REMORA_DOCKER_IMAGE` | `ubuntu:22.04` | Docker image for sandbox containers |
 | `REMORA_BACKFILL_LIMIT` | `500` | Max events sent to a client on WebSocket connect |
 | `REMORA_MAX_SESSIONS` | `100` | Max concurrent sessions (returns 429 when reached) |
-| `REMORA_JWT_SECRET` | *required for auth* | Secret key for signing JWT tokens |
-| `REMORA_JWT_EXPIRY_SECS` | `3600` | JWT access token lifetime |
-| `REMORA_REFRESH_EXPIRY_SECS` | `604800` | Refresh token lifetime (default 7 days) |
-| `REMORA_OAUTH_GITHUB_CLIENT_ID` | | GitHub OAuth app client ID |
+| `REMORA_JWT_SECRET` | auto-generated | Secret for signing JWTs. Auto-generates if unset, but tokens won't survive restarts. Set this for production. |
+| `REMORA_JWT_EXPIRY_SECS` | `3600` | JWT access token lifetime (1 hour) |
+| `REMORA_REFRESH_EXPIRY_SECS` | `604800` | Refresh token lifetime (7 days) |
+| `REMORA_OAUTH_GITHUB_CLIENT_ID` | | GitHub OAuth app client ID (optional, enables GitHub login) |
 | `REMORA_OAUTH_GITHUB_CLIENT_SECRET` | | GitHub OAuth app client secret |
-| `REMORA_OAUTH_GOOGLE_CLIENT_ID` | | Google OAuth client ID |
+| `REMORA_OAUTH_GOOGLE_CLIENT_ID` | | Google OAuth client ID (optional, enables Google login) |
 | `REMORA_OAUTH_GOOGLE_CLIENT_SECRET` | | Google OAuth client secret |
-| `REMORA_OAUTH_REDIRECT_URL` | | OAuth redirect base URL |
+| `REMORA_OAUTH_REDIRECT_URL` | | Base URL for OAuth callbacks (e.g. `https://your-server.com`) |
 
 ### 2. Client (Neovim)
 
@@ -345,21 +345,41 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 
 #### Auth (User Accounts)
 
+> **Note:** These endpoints are available via the REST API. The web UI currently uses team token authentication only. User account login and OAuth buttons in the web client are planned for a future release.
+
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/auth/register` | Create a user account (email + password) |
+| `POST` | `/auth/register` | Create a user account (email + password, argon2 hashed) |
 | `POST` | `/auth/login` | Login, returns JWT access + refresh tokens |
 | `POST` | `/auth/refresh` | Rotate refresh token, get new access token |
-| `GET` | `/auth/me` | Current user info |
-| `POST` | `/auth/api-keys` | Create a per-user API key (`rmk_` prefix) |
+| `GET` | `/auth/me` | Current user info (requires JWT or API key) |
+| `POST` | `/auth/api-keys` | Create a per-user API key (`rmk_` prefix, SHA-256 hashed at rest) |
 | `GET` | `/auth/api-keys` | List API keys |
 | `DELETE` | `/auth/api-keys/:id` | Revoke an API key |
-| `GET` | `/auth/oauth/github` | Initiate GitHub OAuth login |
-| `GET` | `/auth/oauth/github/callback` | GitHub OAuth callback |
-| `GET` | `/auth/oauth/google` | Initiate Google OAuth login |
-| `GET` | `/auth/oauth/google/callback` | Google OAuth callback |
+| `GET` | `/auth/oauth/github` | Redirect to GitHub for OAuth login |
+| `GET` | `/auth/oauth/github/callback` | GitHub OAuth callback (exchanges code for JWT) |
+| `GET` | `/auth/oauth/google` | Redirect to Google for OAuth login |
+| `GET` | `/auth/oauth/google/callback` | Google OAuth callback (exchanges code for JWT) |
 
-All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS). The token can be the admin team token, a JWT access token, a per-user API key, or a session invite token. The server resolves tokens in priority order via `check_any_token()`.
+#### OAuth Flow
+
+1. Client opens `GET /auth/oauth/github` (or `/google`) in a browser
+2. Server redirects to GitHub/Google with a CSRF `state` parameter (HMAC-signed, self-validating)
+3. User authorizes the app on the provider's consent screen
+4. Provider redirects back to the callback URL with an authorization code
+5. Server exchanges the code for provider tokens, creates or links the user account, and returns a JWT
+6. If `REMORA_OAUTH_REDIRECT_URL` is set, the server redirects there with the JWT as a query parameter
+
+Requires `REMORA_OAUTH_GITHUB_CLIENT_ID`/`SECRET` or `REMORA_OAUTH_GOOGLE_CLIENT_ID`/`SECRET` to be configured. OAuth is optional; the server works fine without it.
+
+#### Token Resolution
+
+All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS). The server resolves tokens in priority order:
+
+1. **Admin team token** (`REMORA_TEAM_TOKEN`) -- full server access
+2. **JWT access token** -- issued via `/auth/login` or OAuth callback
+3. **Per-user API key** -- `rmk_`-prefixed, for programmatic/CI access
+4. **Session invite token** -- scoped to a single session
 
 The `owner_key` returned by `POST /sessions` is a secret UUID that proves session ownership. Pass it as `owner_key=<key>` in the WebSocket query params to claim ownership (required for `/trust` and `/untrust` commands). Without it, the first participant to join becomes owner.
 
@@ -375,18 +395,29 @@ The `owner_key` returned by `POST /sessions` is a secret UUID that proves sessio
 
 ### Authentication
 
-Remora supports layered authentication. The server resolves tokens in priority order:
+Remora supports two auth modes that can be used together:
 
-1. **Admin team token** (`REMORA_TEAM_TOKEN`) -- full server access, backwards compatible
-2. **JWT access tokens** -- issued via `/auth/login` or OAuth, scoped to a user account
-3. **Per-user API keys** -- `rmk_`-prefixed keys, SHA-256 hashed at rest, for programmatic access
-4. **Session invite tokens** -- scoped to a single session, for sharing access without giving server-wide credentials
+**Legacy mode (team token):** A single shared `REMORA_TEAM_TOKEN` grants full server access. This is how the web UI and Neovim plugin currently authenticate. Simple to set up, appropriate for small trusted teams.
 
-User accounts support email/password registration with argon2 hashing, plus GitHub and Google OAuth 2.0.
+**User accounts (API-only for now):** Email/password registration with argon2 hashing, JWT access/refresh tokens, GitHub and Google OAuth 2.0, and per-user API keys. Available via the REST API; web UI integration is planned.
+
+### Roles (RBAC)
+
+Users are assigned one of four roles. The admin team token implicitly has `admin` level access.
+
+| Role | Level | Permissions |
+|---|---|---|
+| `admin` | 4 | Full access, manage users and sessions |
+| `member` | 3 | Create sessions, join sessions, run Claude (default for new accounts) |
+| `viewer` | 2 | Join sessions, read events (cannot run Claude or modify sessions) |
+| `guest` | 1 | Read-only access to sessions they are invited to |
+
+Role enforcement applies to JWT and API key authentication. The legacy team token bypasses RBAC (treated as admin).
 
 ### Known limitations
 
 - **WebSocket token in query string**: The token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
+- **Web UI uses team token only**: The web client does not yet have user registration, login, or OAuth buttons. Use the REST API directly or wait for the Phase 2 web UI update.
 
 ### Trust model
 
@@ -396,6 +427,7 @@ By default, all chat messages are untrusted and wrapped in `<untrusted_content>`
 
 See [ROADMAP.md](ROADMAP.md) for the full plan. Short version:
 
+- **Web UI auth** -- user registration, login, and OAuth buttons in the web client (server-side endpoints are ready)
 - **Multi-tenancy** -- team namespacing so multiple groups can share one server
 - **MySQL / MariaDB** -- fourth database backend
 - **Admin dashboard** -- surface the token usage, run analytics, and allowlists already tracked in the DB
