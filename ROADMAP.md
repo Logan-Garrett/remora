@@ -91,20 +91,26 @@ Role hierarchy and enforcement helpers are implemented. RBAC enforcement in WebS
 
 Right now running separate teams means running separate servers. That's fine but wasteful.
 
-### Team namespacing
-- Sessions, quotas, and allowlists scoped to a team
-- Team admins manage their own members and token limits
-- Complete isolation between teams on the same server instance
+### Team namespacing -- DONE
+- Sessions scoped to a team via `team_id` foreign key on `sessions` table
+- Team admins manage their own members via REST API (add, remove, update roles)
+- `teams` and `team_members` tables with full CRUD (12 new REST endpoints)
+- Team member roles: admin, member, viewer
+- Unique team names enforced at the DB level
 
-### User dashboard
-A web page showing:
-- All sessions you have access to (created or invited)
-- Quick join / create
-- Usage summary for your sessions
-- Pending invites
+### User dashboard -- DONE (backend API)
+Backend `GET /dashboard` endpoint returns all sessions the authenticated user has access to across all their teams, with team name annotations. Includes:
+- All sessions you have access to (via team membership)
+- Session status, description, creation time, and team name
+- Frontend UI for the dashboard is a separate task
 
-### Cross-team isolation
-Teams cannot see each other's sessions, events, or workspaces. The DB already has per-session scoping everywhere; it just needs a `team_id` column added and propagated.
+### Cross-team isolation -- DONE
+Teams cannot see each other's sessions. Enforced at multiple layers:
+- REST endpoints check team membership before returning team data
+- WebSocket upgrade checks team membership for team-scoped sessions
+- Admin token bypasses team checks (server-level access)
+- Session-scoped tokens bypass team checks (already scoped to one session)
+- Team deletion detaches sessions (sets `team_id` to NULL) rather than cascade-deleting them
 
 ---
 

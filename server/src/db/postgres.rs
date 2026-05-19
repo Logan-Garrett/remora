@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use remora_common::{ApiKeyInfo, Event, SessionToken, User};
+use remora_common::{ApiKeyInfo, Event, SessionToken, Team, TeamMember, User};
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -899,6 +899,238 @@ impl Database for PostgresDb {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    // -- teams --
+
+    async fn create_team(
+        &self,
+        name: &str,
+        description: &str,
+        created_by: Uuid,
+    ) -> anyhow::Result<Uuid> {
+        let id = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO teams (name, description, created_by) \
+             VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(name)
+        .bind(description)
+        .bind(created_by)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn get_team(&self, team_id: Uuid) -> anyhow::Result<Option<Team>> {
+        let row = sqlx::query_as::<_, (Uuid, String, String, i64, DateTime<Utc>)>(
+            "SELECT id, name, description, daily_token_cap, created_at FROM teams WHERE id = $1",
+        )
+        .bind(team_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(id, name, description, daily_token_cap, created_at)| Team {
+                id,
+                name,
+                description,
+                daily_token_cap,
+                created_at,
+            },
+        ))
+    }
+
+    async fn list_teams_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Team>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, String, i64, DateTime<Utc>)>(
+            "SELECT t.id, t.name, t.description, t.daily_token_cap, t.created_at \
+             FROM teams t JOIN team_members tm ON t.id = tm.team_id \
+             WHERE tm.user_id = $1 ORDER BY t.name",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, name, description, daily_token_cap, created_at)| Team {
+                    id,
+                    name,
+                    description,
+                    daily_token_cap,
+                    created_at,
+                },
+            )
+            .collect())
+    }
+
+    async fn update_team(
+        &self,
+        team_id: Uuid,
+        name: &str,
+        description: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE teams SET name = $1, description = $2 WHERE id = $3")
+            .bind(name)
+            .bind(description)
+            .bind(team_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_team(&self, team_id: Uuid) -> anyhow::Result<()> {
+        // Clear team_id on sessions before deleting team
+        sqlx::query("UPDATE sessions SET team_id = NULL WHERE team_id = $1")
+            .bind(team_id)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM teams WHERE id = $1")
+            .bind(team_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // -- team members --
+
+    async fn add_team_member(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, $3) \
+             ON CONFLICT (team_id, user_id) DO UPDATE SET role = $3",
+        )
+        .bind(team_id)
+        .bind(user_id)
+        .bind(role)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn remove_team_member(&self, team_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM team_members WHERE team_id = $1 AND user_id = $2")
+            .bind(team_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_team_members(&self, team_id: Uuid) -> anyhow::Result<Vec<TeamMember>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, String, String, DateTime<Utc>)>(
+            "SELECT u.id, u.email, u.display_name, tm.role, tm.joined_at \
+             FROM team_members tm JOIN users u ON tm.user_id = u.id \
+             WHERE tm.team_id = $1 ORDER BY u.display_name",
+        )
+        .bind(team_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(user_id, email, display_name, role, joined_at)| TeamMember {
+                    user_id,
+                    email,
+                    display_name,
+                    role,
+                    joined_at,
+                },
+            )
+            .collect())
+    }
+
+    async fn get_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<String>> {
+        let row = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2",
+        )
+        .bind(team_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn update_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE team_members SET role = $1 WHERE team_id = $2 AND user_id = $3")
+            .bind(role)
+            .bind(team_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // -- team-scoped sessions --
+
+    async fn create_session_for_team(
+        &self,
+        description: &str,
+        team_id: Uuid,
+    ) -> anyhow::Result<(Uuid, String, DateTime<Utc>)> {
+        let row = sqlx::query_as::<_, (Uuid, String, DateTime<Utc>)>(
+            "INSERT INTO sessions (description, team_id) VALUES ($1, $2) \
+             RETURNING id, description, created_at",
+        )
+        .bind(description)
+        .bind(team_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn list_sessions_for_team(
+        &self,
+        team_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, DateTime<Utc>, String)>(
+            "SELECT id, description, created_at, status FROM sessions \
+             WHERE team_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(team_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    async fn get_session_team(&self, session_id: Uuid) -> anyhow::Result<Option<Uuid>> {
+        let row =
+            sqlx::query_scalar::<_, Option<Uuid>>("SELECT team_id FROM sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.flatten())
+    }
+
+    // -- user dashboard --
+
+    async fn list_sessions_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String, Option<String>)>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, DateTime<Utc>, String, Option<String>)>(
+            "SELECT DISTINCT s.id, s.description, s.created_at, s.status, t.name \
+             FROM sessions s \
+             LEFT JOIN teams t ON s.team_id = t.id \
+             LEFT JOIN team_members tm ON s.team_id = tm.team_id \
+             WHERE s.team_id IS NULL OR tm.user_id = $1 \
+             ORDER BY s.created_at DESC",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 
     // -- notifications --

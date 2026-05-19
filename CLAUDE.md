@@ -18,7 +18,7 @@ The server is **stateless across restarts** — reconnecting clients get their h
 remora/
 ├── server/              Rust — axum HTTP + WebSocket server (main binary: remora-server)
 │   └── src/
-│       ├── lib.rs       Router, auth, REST handlers (create/list/delete/reactivate session, health)
+│       ├── lib.rs       Router, auth, REST handlers (sessions, teams, team members, dashboard, health)
 │       ├── auth.rs      Authentication: JWT, password hashing (argon2), OAuth (GitHub/Google), RBAC, API keys
 │       ├── ws.rs        WebSocket upgrade, per-connection send loop, ping keepalive
 │       ├── commands.rs  Dispatch ClientMsg variants to handlers (/run, /add, /fetch, etc.)
@@ -35,7 +35,7 @@ remora/
 │   └── src/main.rs      Reads JSON from stdin, forwards to WS; reads WS events, writes to stdout
 │
 ├── common/              Rust — shared types imported by both server and bridge
-│   └── src/lib.rs       Event, ClientMsg, ServerMsg, SessionInfo
+│   └── src/lib.rs       Event, ClientMsg, ServerMsg, SessionInfo, Team, TeamMember
 │
 ├── plugin/              Lua — Neovim plugin
 │   └── lua/remora/
@@ -149,6 +149,31 @@ Every REST request requires `Authorization: Bearer <token>`. WebSocket upgrade p
 **User accounts** support email+password registration (argon2 hashing) and OAuth (GitHub, Google). Refresh token rotation issues a new refresh token on every use and atomically consumes the old one.
 
 **RBAC** defines four roles (admin, member, viewer, guest) with a numeric hierarchy. Role enforcement in WebSocket command dispatch is not yet wired in (see TODO in `commands.rs`).
+
+### Teams (Multi-tenancy)
+
+Teams group users and sessions together. A session can optionally belong to a team via a nullable `team_id` foreign key on the `sessions` table. Team-scoped sessions are only visible to members of that team. Three DB tables support this: `teams`, `team_members`, and the `team_id` column on `sessions`.
+
+**Team endpoints** (all require JWT or API key auth):
+
+| Method | Path | Description |
+|---|---|---|
+| `POST /teams` | | Create a team (creator becomes admin) |
+| `GET /teams` | | List teams for the authenticated user |
+| `GET /teams/:id` | | Get team details (members only) |
+| `PUT /teams/:id` | | Update team name/description (admin only) |
+| `DELETE /teams/:id` | | Delete team (admin only); detaches sessions |
+| `POST /teams/:id/members` | | Add a member (admin only) |
+| `GET /teams/:id/members` | | List members (any member) |
+| `PUT /teams/:id/members/:uid` | | Update member role (admin only) |
+| `DELETE /teams/:id/members/:uid` | | Remove member (admin or self) |
+| `POST /teams/:id/sessions` | | Create session scoped to team (member/admin) |
+| `GET /teams/:id/sessions` | | List sessions for team (any member) |
+| `GET /dashboard` | | User dashboard: all sessions the user has access to across teams |
+
+**Team member roles**: `admin`, `member`, `viewer`. Admins manage members and team settings. Members can create team sessions. Viewers have read-only access.
+
+**Cross-team isolation**: WebSocket upgrade checks team membership. If a session belongs to a team, only team members (or admin token holders) can connect. Session tokens that are already scoped to a session bypass the team check.
 
 ### Database
 

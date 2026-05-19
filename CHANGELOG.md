@@ -8,6 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ## [Unreleased]
 
+### Added
+- **Phase 2 Multi-tenancy: Teams** -- full team management with CRUD endpoints (`POST/GET/PUT/DELETE /teams`, `/teams/:id/members`, `/teams/:id/sessions`)
+- New DB tables: `teams` (id, name, description, daily_token_cap, created_by) and `team_members` (team_id, user_id, role, joined_at)
+- Nullable `team_id` foreign key on `sessions` table with index for team-scoped session queries
+- 12 new REST endpoints: 5 team CRUD, 4 team member management, 2 team-scoped session operations, 1 user dashboard
+- `GET /dashboard` endpoint returns all sessions the authenticated user can access across teams, with team name annotations
+- Cross-team isolation enforced at WebSocket upgrade: connecting to a team-scoped session requires team membership (JWT or API key). Admin token and session-scoped tokens bypass the check
+- `Team` and `TeamMember` structs in `common/` crate for shared type definitions
+- Team member roles: `admin` (manage team), `member` (create sessions), `viewer` (read-only)
+- Team deletion detaches sessions (sets `team_id` to NULL) rather than cascading deletes
+- Database trait extended with 12 new methods: `create_team`, `get_team`, `list_teams_for_user`, `update_team`, `delete_team`, `add_team_member`, `remove_team_member`, `list_team_members`, `get_team_member_role`, `update_team_member_role`, `create_session_for_team`, `list_sessions_for_team`, `get_session_team`, `list_sessions_for_user`
+- 10 new integration tests across `teams_test.rs` and `team_sessions_test.rs`
+- Migrations for all three DB backends (Postgres, SQLite, MSSQL)
+
 ---
 
 ## [0.10.1] -- 2026-05-18

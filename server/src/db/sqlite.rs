@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use remora_common::{ApiKeyInfo, Event, SessionToken, User};
+use remora_common::{ApiKeyInfo, Event, SessionToken, Team, TeamMember, User};
 use serde_json::Value;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
@@ -1146,6 +1146,310 @@ impl Database for SqliteDb {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    // -- teams --
+
+    async fn create_team(
+        &self,
+        name: &str,
+        description: &str,
+        created_by: Uuid,
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        let id_str = id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        let cb_str = created_by.to_string();
+        sqlx::query(
+            "INSERT INTO teams (id, name, description, created_at, created_by) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id_str)
+        .bind(name)
+        .bind(description)
+        .bind(&now_str)
+        .bind(&cb_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn get_team(&self, team_id: Uuid) -> anyhow::Result<Option<Team>> {
+        let id_str = team_id.to_string();
+        let row = sqlx::query_as::<_, (String, String, String, i64, String)>(
+            "SELECT id, name, description, daily_token_cap, created_at FROM teams WHERE id = ?",
+        )
+        .bind(&id_str)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some((id, name, description, daily_token_cap, ts)) => {
+                let uuid = id.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(Some(Team {
+                    id: uuid,
+                    name,
+                    description,
+                    daily_token_cap,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn list_teams_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Team>> {
+        let uid_str = user_id.to_string();
+        let rows = sqlx::query_as::<_, (String, String, String, i64, String)>(
+            "SELECT t.id, t.name, t.description, t.daily_token_cap, t.created_at \
+             FROM teams t JOIN team_members tm ON t.id = tm.team_id \
+             WHERE tm.user_id = ? ORDER BY t.name",
+        )
+        .bind(&uid_str)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|(id, name, description, daily_token_cap, ts)| {
+                let uuid = id.parse::<Uuid>()?;
+                let created_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(Team {
+                    id: uuid,
+                    name,
+                    description,
+                    daily_token_cap,
+                    created_at,
+                })
+            })
+            .collect()
+    }
+
+    async fn update_team(
+        &self,
+        team_id: Uuid,
+        name: &str,
+        description: &str,
+    ) -> anyhow::Result<()> {
+        let id_str = team_id.to_string();
+        sqlx::query("UPDATE teams SET name = ?, description = ? WHERE id = ?")
+            .bind(name)
+            .bind(description)
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_team(&self, team_id: Uuid) -> anyhow::Result<()> {
+        let id_str = team_id.to_string();
+        // Clear team_id on sessions before deleting team (SQLite FK cascade
+        // only cascades to team_members, not to sessions which use a nullable FK)
+        sqlx::query("UPDATE sessions SET team_id = NULL WHERE team_id = ?")
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM teams WHERE id = ?")
+            .bind(&id_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // -- team members --
+
+    async fn add_team_member(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        let tid_str = team_id.to_string();
+        let uid_str = user_id.to_string();
+        let now_str = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO team_members (team_id, user_id, role, joined_at) VALUES (?, ?, ?, ?) \
+             ON CONFLICT (team_id, user_id) DO UPDATE SET role = excluded.role",
+        )
+        .bind(&tid_str)
+        .bind(&uid_str)
+        .bind(role)
+        .bind(&now_str)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn remove_team_member(&self, team_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        let tid_str = team_id.to_string();
+        let uid_str = user_id.to_string();
+        sqlx::query("DELETE FROM team_members WHERE team_id = ? AND user_id = ?")
+            .bind(&tid_str)
+            .bind(&uid_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_team_members(&self, team_id: Uuid) -> anyhow::Result<Vec<TeamMember>> {
+        let tid_str = team_id.to_string();
+        let rows = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT u.id, u.email, u.display_name, tm.role, tm.joined_at \
+             FROM team_members tm JOIN users u ON tm.user_id = u.id \
+             WHERE tm.team_id = ? ORDER BY u.display_name",
+        )
+        .bind(&tid_str)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|(uid, email, display_name, role, ts)| {
+                let user_id = uid.parse::<Uuid>()?;
+                let joined_at = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(TeamMember {
+                    user_id,
+                    email,
+                    display_name,
+                    role,
+                    joined_at,
+                })
+            })
+            .collect()
+    }
+
+    async fn get_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<String>> {
+        let tid_str = team_id.to_string();
+        let uid_str = user_id.to_string();
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT role FROM team_members WHERE team_id = ? AND user_id = ?")
+                .bind(&tid_str)
+                .bind(&uid_str)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(r,)| r))
+    }
+
+    async fn update_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        let tid_str = team_id.to_string();
+        let uid_str = user_id.to_string();
+        sqlx::query("UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?")
+            .bind(role)
+            .bind(&tid_str)
+            .bind(&uid_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // -- team-scoped sessions --
+
+    async fn create_session_for_team(
+        &self,
+        description: &str,
+        team_id: Uuid,
+    ) -> anyhow::Result<(Uuid, String, DateTime<Utc>)> {
+        let id = Uuid::new_v4();
+        let now = Utc::now();
+        let id_str = id.to_string();
+        let now_str = now.to_rfc3339();
+        let tid_str = team_id.to_string();
+        let today = Utc::now().date_naive().to_string();
+
+        sqlx::query(
+            "INSERT INTO sessions (id, description, created_at, updated_at, \
+             daily_token_cap, tokens_used_today, tokens_reset_date, team_id) \
+             VALUES (?, ?, ?, ?, 999999999, 0, ?, ?)",
+        )
+        .bind(&id_str)
+        .bind(description)
+        .bind(&now_str)
+        .bind(&now_str)
+        .bind(&today)
+        .bind(&tid_str)
+        .execute(&self.pool)
+        .await?;
+
+        Ok((id, description.to_string(), now))
+    }
+
+    async fn list_sessions_for_team(
+        &self,
+        team_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>> {
+        let tid_str = team_id.to_string();
+        let rows = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT id, description, created_at, status FROM sessions \
+             WHERE team_id = ? ORDER BY created_at DESC",
+        )
+        .bind(&tid_str)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|(id, desc, ts, status)| {
+                let uuid = id.parse::<Uuid>()?;
+                let dt = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok((uuid, desc, dt, status))
+            })
+            .collect()
+    }
+
+    async fn get_session_team(&self, session_id: Uuid) -> anyhow::Result<Option<Uuid>> {
+        let sid_str = session_id.to_string();
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT team_id FROM sessions WHERE id = ?")
+                .bind(&sid_str)
+                .fetch_optional(&self.pool)
+                .await?;
+        match row {
+            Some((Some(tid),)) => Ok(Some(tid.parse::<Uuid>()?)),
+            _ => Ok(None),
+        }
+    }
+
+    // -- user dashboard --
+
+    async fn list_sessions_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String, Option<String>)>> {
+        let uid_str = user_id.to_string();
+        // Sessions from teams the user belongs to, plus sessions with no team_id
+        let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
+            "SELECT DISTINCT s.id, s.description, s.created_at, s.status, t.name \
+             FROM sessions s \
+             LEFT JOIN teams t ON s.team_id = t.id \
+             LEFT JOIN team_members tm ON s.team_id = tm.team_id \
+             WHERE s.team_id IS NULL OR tm.user_id = ? \
+             ORDER BY s.created_at DESC",
+        )
+        .bind(&uid_str)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|(id, desc, ts, status, team_name)| {
+                let uuid = id.parse::<Uuid>()?;
+                let dt = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok((uuid, desc, dt, status, team_name))
+            })
+            .collect()
     }
 
     // -- notifications --
