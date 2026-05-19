@@ -107,7 +107,7 @@ How a `/run` flows through the system — from chat to Claude's response, broadc
 - **One run at a time**: Only one Claude run per session. Additional `/run` requests are queued/rejected while one is in flight.
 - **Max turns**: Claude runs are capped at 5 agentic turns per invocation (hardcoded).
 - **Fetch limits**: `/fetch` truncates responses at 100KB.
-- **Idle cleanup**: Sessions idle longer than `REMORA_IDLE_TIMEOUT_SECS` have their workspace deleted and are marked `expired`. Event history is retained in the database. Clients connecting to an expired session receive a clear "This session was cleaned up due to inactivity" message. Set `REMORA_IDLE_TIMEOUT_SECS` to a large value (e.g. `999999999`) to effectively disable cleanup.
+- **Idle cleanup**: Sessions idle longer than `REMORA_IDLE_TIMEOUT_SECS` have their workspace deleted and are marked `expired`. Event history is retained in the database. Expired sessions can be resumed via the "Resume" button in the web UI or `POST /sessions/:id/reactivate`. Set `REMORA_IDLE_TIMEOUT_SECS` to a large value (e.g. `999999999`) to effectively disable cleanup.
 
 ## Prerequisites
 
@@ -169,6 +169,14 @@ For **SQLite**, set `REMORA_DB_PROVIDER=sqlite` and `DATABASE_URL=sqlite:remora.
 | `REMORA_DOCKER_IMAGE` | `ubuntu:22.04` | Docker image for sandbox containers |
 | `REMORA_BACKFILL_LIMIT` | `500` | Max events sent to a client on WebSocket connect |
 | `REMORA_MAX_SESSIONS` | `100` | Max concurrent sessions (returns 429 when reached) |
+| `REMORA_JWT_SECRET` | *required for auth* | Secret key for signing JWT tokens |
+| `REMORA_JWT_EXPIRY_SECS` | `3600` | JWT access token lifetime |
+| `REMORA_REFRESH_EXPIRY_SECS` | `604800` | Refresh token lifetime (default 7 days) |
+| `REMORA_OAUTH_GITHUB_CLIENT_ID` | | GitHub OAuth app client ID |
+| `REMORA_OAUTH_GITHUB_CLIENT_SECRET` | | GitHub OAuth app client secret |
+| `REMORA_OAUTH_GOOGLE_CLIENT_ID` | | Google OAuth client ID |
+| `REMORA_OAUTH_GOOGLE_CLIENT_SECRET` | | Google OAuth client secret |
+| `REMORA_OAUTH_REDIRECT_URL` | | OAuth redirect base URL |
 
 ### 2. Client (Neovim)
 
@@ -317,14 +325,41 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 
 ### REST API
 
+#### Sessions
+
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/sessions` | Create session `{description, repos: [url]}` — response includes `owner_key` |
-| `GET` | `/sessions` | List sessions |
+| `POST` | `/sessions` | Create session `{description, repos: [url]}` -- response includes `owner_key` |
+| `GET` | `/sessions` | List sessions (includes `status`: "active" or "expired") |
 | `DELETE` | `/sessions/:id` | Delete session + cleanup |
+| `POST` | `/sessions/:id/reactivate` | Resume an expired session |
 | `GET` | `/sessions/:id` | WebSocket upgrade (query: `token`, `name`, optional `owner_key`) |
 
-All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS).
+#### Session Invite Tokens
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/sessions/:id/tokens` | Create an invite token for a session |
+| `GET` | `/sessions/:id/tokens` | List tokens for a session |
+| `DELETE` | `/sessions/:id/tokens/:token_id` | Revoke a session token |
+
+#### Auth (User Accounts)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/auth/register` | Create a user account (email + password) |
+| `POST` | `/auth/login` | Login, returns JWT access + refresh tokens |
+| `POST` | `/auth/refresh` | Rotate refresh token, get new access token |
+| `GET` | `/auth/me` | Current user info |
+| `POST` | `/auth/api-keys` | Create a per-user API key (`rmk_` prefix) |
+| `GET` | `/auth/api-keys` | List API keys |
+| `DELETE` | `/auth/api-keys/:id` | Revoke an API key |
+| `GET` | `/auth/oauth/github` | Initiate GitHub OAuth login |
+| `GET` | `/auth/oauth/github/callback` | GitHub OAuth callback |
+| `GET` | `/auth/oauth/google` | Initiate Google OAuth login |
+| `GET` | `/auth/oauth/google/callback` | Google OAuth callback |
+
+All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS). The token can be the admin team token, a JWT access token, a per-user API key, or a session invite token. The server resolves tokens in priority order via `check_any_token()`.
 
 The `owner_key` returned by `POST /sessions` is a secret UUID that proves session ownership. Pass it as `owner_key=<key>` in the WebSocket query params to claim ownership (required for `/trust` and `/untrust` commands). Without it, the first participant to join becomes owner.
 
@@ -338,10 +373,20 @@ The `owner_key` returned by `POST /sessions` is a secret UUID that proves sessio
 
 ## Security
 
+### Authentication
+
+Remora supports layered authentication. The server resolves tokens in priority order:
+
+1. **Admin team token** (`REMORA_TEAM_TOKEN`) -- full server access, backwards compatible
+2. **JWT access tokens** -- issued via `/auth/login` or OAuth, scoped to a user account
+3. **Per-user API keys** -- `rmk_`-prefixed keys, SHA-256 hashed at rest, for programmatic access
+4. **Session invite tokens** -- scoped to a single session, for sharing access without giving server-wide credentials
+
+User accounts support email/password registration with argon2 hashing, plus GitHub and Google OAuth 2.0.
+
 ### Known limitations
 
-- **WebSocket token in query string**: The team token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
-- **Session-scoped authorization**: Currently, knowing the team token grants access to all sessions. Per-session tokens are not yet implemented. Treat the team token as a shared secret for your team.
+- **WebSocket token in query string**: The token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
 
 ### Trust model
 
@@ -351,13 +396,11 @@ By default, all chat messages are untrusted and wrapped in `<untrusted_content>`
 
 See [ROADMAP.md](ROADMAP.md) for the full plan. Short version:
 
-- **Per-session tokens** — scoped invite tokens so sharing one session doesn't grant server-wide access
-- **User accounts + OAuth / SSO** — replace the shared team token with real identity
-- **Multi-tenancy** — team namespacing so multiple groups can share one server
-- **MySQL / MariaDB** — fourth database backend
-- **Admin dashboard** — surface the token usage, run analytics, and allowlists already tracked in the DB
-- **Desktop app** — native Tauri wrapper with menu-bar presence and notifications
-- **VS Code / JetBrains plugins** — bring the Neovim plugin experience to other editors
+- **Multi-tenancy** -- team namespacing so multiple groups can share one server
+- **MySQL / MariaDB** -- fourth database backend
+- **Admin dashboard** -- surface the token usage, run analytics, and allowlists already tracked in the DB
+- **Desktop app** -- native Tauri wrapper with menu-bar presence and notifications (shell exists, features in progress)
+- **VS Code / JetBrains plugins** -- bring the Neovim plugin experience to other editors
 
 ## Contributing
 
