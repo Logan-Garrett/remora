@@ -130,3 +130,23 @@ pub struct ApiKeyInfo {
     pub last_used_at: Option<DateTime<Utc>>,
     pub revoked: bool,
 }
+
+/// A team for multi-tenancy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Team {
+    pub id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub daily_token_cap: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// A member of a team.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamMember {
+    pub user_id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub role: String,
+    pub joined_at: DateTime<Utc>,
+}

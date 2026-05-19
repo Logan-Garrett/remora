@@ -19,7 +19,7 @@ use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use db::Database;
@@ -380,6 +380,30 @@ async fn ws_upgrade(
         }
     };
 
+    // Cross-team isolation: if session belongs to a team, check membership.
+    // Admin token bypasses team checks. Session tokens are already scoped.
+    if let Ok(Some(team_id)) = state.db.get_session_team(session_id).await {
+        match &token_kind {
+            TokenKind::Admin | TokenKind::Session(_) => {
+                // Admin and session tokens bypass team checks
+            }
+            TokenKind::UserJwt(user) | TokenKind::ApiKey(user) => {
+                match state.db.get_team_member_role(team_id, user.id).await {
+                    Ok(None) => {
+                        return (StatusCode::FORBIDDEN, "not a member of the session's team")
+                            .into_response();
+                    }
+                    Err(e) => {
+                        tracing::error!("get_team_member_role (ws): {e}");
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+                    }
+                    Ok(Some(_)) => {} // authorized
+                }
+            }
+            TokenKind::Invalid => unreachable!(),
+        }
+    }
+
     // If authenticated via JWT/API key, use the user's display_name;
     // otherwise fall back to ?name= query param.
     let name = jwt_name.unwrap_or_else(|| query.name.unwrap_or_else(|| "anon".into()));
@@ -518,6 +542,552 @@ pub fn is_safe_git_url(url: &str) -> bool {
     false
 }
 
+// --- Team types ---
+
+#[derive(Deserialize)]
+struct CreateTeamBody {
+    name: String,
+    #[serde(default)]
+    description: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateTeamBody {
+    name: String,
+    #[serde(default)]
+    description: String,
+}
+
+#[derive(Deserialize)]
+struct AddTeamMemberBody {
+    user_id: Uuid,
+    #[serde(default = "default_member_role")]
+    role: String,
+}
+
+fn default_member_role() -> String {
+    "member".to_string()
+}
+
+#[derive(Deserialize)]
+struct UpdateTeamMemberBody {
+    role: String,
+}
+
+#[derive(Deserialize)]
+struct CreateTeamSessionBody {
+    #[serde(default)]
+    description: String,
+}
+
+/// Extract the authenticated user from the request (JWT or API key).
+/// Returns None if the user is not authenticated via user credentials.
+async fn extract_user(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Option<remora_common::User> {
+    let token = extract_token(headers)?;
+    match check_any_token(state, token).await {
+        TokenKind::UserJwt(user) | TokenKind::ApiKey(user) => Some(user),
+        _ => None,
+    }
+}
+
+// --- Team REST handlers ---
+
+async fn create_team(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<CreateTeamBody>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    if body.name.is_empty() {
+        return (StatusCode::BAD_REQUEST, "team name required").into_response();
+    }
+
+    match state
+        .db
+        .create_team(&body.name, &body.description, user.id)
+        .await
+    {
+        Ok(team_id) => {
+            // Add creator as admin
+            if let Err(e) = state.db.add_team_member(team_id, user.id, "admin").await {
+                tracing::error!("add_team_member (creator): {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+            }
+            match state.db.get_team(team_id).await {
+                Ok(Some(team)) => (StatusCode::CREATED, Json(team)).into_response(),
+                Ok(None) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "team created but not found",
+                )
+                    .into_response(),
+                Err(e) => {
+                    tracing::error!("get_team: {e}");
+                    (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+                }
+            }
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("UNIQUE") || msg.contains("unique") || msg.contains("duplicate") {
+                (StatusCode::CONFLICT, "team name already exists").into_response()
+            } else {
+                tracing::error!("create_team: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+            }
+        }
+    }
+}
+
+async fn list_teams(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    match state.db.list_teams_for_user(user.id).await {
+        Ok(teams) => Json(teams).into_response(),
+        Err(e) => {
+            tracing::error!("list_teams_for_user: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+async fn get_team(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(team_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check membership
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        Ok(Some(_)) => {}
+    }
+
+    match state.db.get_team(team_id).await {
+        Ok(Some(team)) => Json(team).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "team not found").into_response(),
+        Err(e) => {
+            tracing::error!("get_team: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+async fn update_team_endpoint(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(team_id): Path<Uuid>,
+    Json(body): Json<UpdateTeamBody>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check admin role
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(Some(role)) if role == "admin" => {}
+        Ok(Some(_)) => {
+            return (StatusCode::FORBIDDEN, "team admin required").into_response();
+        }
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    if body.name.is_empty() {
+        return (StatusCode::BAD_REQUEST, "team name required").into_response();
+    }
+
+    match state
+        .db
+        .update_team(team_id, &body.name, &body.description)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("UNIQUE") || msg.contains("unique") || msg.contains("duplicate") {
+                (StatusCode::CONFLICT, "team name already exists").into_response()
+            } else {
+                tracing::error!("update_team: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+            }
+        }
+    }
+}
+
+async fn delete_team_endpoint(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(team_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check admin role
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(Some(role)) if role == "admin" => {}
+        Ok(Some(_)) => {
+            return (StatusCode::FORBIDDEN, "team admin required").into_response();
+        }
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    match state.db.delete_team(team_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!("delete_team: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+// --- Team member REST handlers ---
+
+async fn add_team_member(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(team_id): Path<Uuid>,
+    Json(body): Json<AddTeamMemberBody>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check admin role
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(Some(role)) if role == "admin" => {}
+        Ok(Some(_)) => {
+            return (StatusCode::FORBIDDEN, "team admin required").into_response();
+        }
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let role = if body.role.is_empty() {
+        "member"
+    } else {
+        match body.role.as_str() {
+            "admin" | "member" | "viewer" => body.role.as_str(),
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "role must be admin, member, or viewer",
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    match state.db.add_team_member(team_id, body.user_id, role).await {
+        Ok(()) => StatusCode::CREATED.into_response(),
+        Err(e) => {
+            tracing::error!("add_team_member: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+async fn list_team_members(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(team_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check membership
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        Ok(Some(_)) => {}
+    }
+
+    match state.db.list_team_members(team_id).await {
+        Ok(members) => Json(members).into_response(),
+        Err(e) => {
+            tracing::error!("list_team_members: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+async fn update_team_member(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path((team_id, member_uid)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateTeamMemberBody>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check admin role
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(Some(role)) if role == "admin" => {}
+        Ok(Some(_)) => {
+            return (StatusCode::FORBIDDEN, "team admin required").into_response();
+        }
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    match body.role.as_str() {
+        "admin" | "member" | "viewer" => {}
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "role must be admin, member, or viewer",
+            )
+                .into_response();
+        }
+    }
+
+    match state
+        .db
+        .update_team_member_role(team_id, member_uid, &body.role)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!("update_team_member_role: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+async fn remove_team_member_endpoint(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path((team_id, member_uid)): Path<(Uuid, Uuid)>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Allow self-removal or admin removal
+    let is_self = user.id == member_uid;
+    if !is_self {
+        match state.db.get_team_member_role(team_id, user.id).await {
+            Ok(Some(role)) if role == "admin" => {}
+            Ok(Some(_)) => {
+                return (StatusCode::FORBIDDEN, "team admin required").into_response();
+            }
+            Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+            Err(e) => {
+                tracing::error!("get_team_member_role: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+            }
+        }
+    }
+
+    match state.db.remove_team_member(team_id, member_uid).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!("remove_team_member: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+// --- Team-scoped session handlers ---
+
+async fn create_team_session(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(team_id): Path<Uuid>,
+    Json(body): Json<CreateTeamSessionBody>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check membership (member or admin can create sessions; viewer cannot)
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(Some(role)) if role == "admin" || role == "member" => {}
+        Ok(Some(_)) => {
+            return (StatusCode::FORBIDDEN, "team member or admin role required").into_response();
+        }
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    // Enforce max sessions limit
+    match state.db.count_sessions().await {
+        Ok(count) if count >= state.config.max_sessions as i64 => {
+            return (StatusCode::TOO_MANY_REQUESTS, "session limit reached").into_response();
+        }
+        Err(e) => {
+            tracing::error!("count sessions: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        _ => {}
+    }
+
+    match state
+        .db
+        .create_session_for_team(&body.description, team_id)
+        .await
+    {
+        Ok((id, description, created_at)) => {
+            // Generate and persist the owner_key
+            let owner_key = Uuid::new_v4().to_string();
+            if let Err(e) = state.db.set_owner_key(id, &owner_key).await {
+                tracing::error!("failed to set owner_key for team session {id}: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+            }
+
+            // Create workspace directory
+            let session_dir = state.config.workspace_dir.join(id.to_string());
+            if let Err(e) = tokio::fs::create_dir_all(&session_dir).await {
+                tracing::error!("failed to create workspace for team session {id}: {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to create workspace",
+                )
+                    .into_response();
+            }
+
+            let invite_token = match state.db.create_session_token(id, "initial").await {
+                Ok(tok) => Some(tok),
+                Err(e) => {
+                    tracing::error!("failed to create initial session token for {id}: {e}");
+                    None
+                }
+            };
+
+            let info = SessionInfo {
+                id,
+                description,
+                created_at,
+                status: "active".to_string(),
+                owner_key: Some(owner_key),
+                invite_token,
+            };
+            (StatusCode::CREATED, Json(info)).into_response()
+        }
+        Err(e) => {
+            tracing::error!("create_session_for_team: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+async fn list_team_sessions(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Path(team_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    // Check membership
+    match state.db.get_team_member_role(team_id, user.id).await {
+        Ok(None) => return (StatusCode::FORBIDDEN, "not a team member").into_response(),
+        Err(e) => {
+            tracing::error!("get_team_member_role: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+        Ok(Some(_)) => {}
+    }
+
+    match state.db.list_sessions_for_team(team_id).await {
+        Ok(rows) => {
+            let sessions: Vec<SessionInfo> = rows
+                .into_iter()
+                .map(|(id, description, created_at, status)| SessionInfo {
+                    id,
+                    description,
+                    created_at,
+                    status,
+                    owner_key: None,
+                    invite_token: None,
+                })
+                .collect();
+            Json(sessions).into_response()
+        }
+        Err(e) => {
+            tracing::error!("list_sessions_for_team: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+// --- Dashboard handler ---
+
+async fn user_dashboard(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let Some(user) = extract_user(&state, &headers).await else {
+        return (StatusCode::UNAUTHORIZED, "JWT or API key required").into_response();
+    };
+
+    match state.db.list_sessions_for_user(user.id).await {
+        Ok(rows) => {
+            let sessions: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|(id, description, created_at, status, team_name)| {
+                    serde_json::json!({
+                        "id": id,
+                        "description": description,
+                        "created_at": created_at,
+                        "status": status,
+                        "team_name": team_name,
+                    })
+                })
+                .collect();
+            Json(serde_json::json!({
+                "user": user,
+                "sessions": sessions,
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::error!("list_sessions_for_user: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
 /// Build the axum `Router` with the given shared state.
 /// Extracted so that integration tests can spin up the server easily.
 pub fn build_router(shared: Arc<AppState>) -> Router {
@@ -554,6 +1124,25 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
             "/auth/oauth/google/callback",
             get(auth::oauth_google_callback),
         )
+        // Teams
+        .route("/teams", post(create_team))
+        .route("/teams", get(list_teams))
+        .route("/teams/:id", get(get_team))
+        .route("/teams/:id", put(update_team_endpoint))
+        .route("/teams/:id", delete(delete_team_endpoint))
+        // Team members
+        .route("/teams/:id/members", post(add_team_member))
+        .route("/teams/:id/members", get(list_team_members))
+        .route("/teams/:id/members/:uid", put(update_team_member))
+        .route(
+            "/teams/:id/members/:uid",
+            delete(remove_team_member_endpoint),
+        )
+        // Team sessions
+        .route("/teams/:id/sessions", post(create_team_session))
+        .route("/teams/:id/sessions", get(list_team_sessions))
+        // Dashboard
+        .route("/dashboard", get(user_dashboard))
         .layer(ConcurrencyLimitLayer::new(100))
         // NOTE: Permissive CORS is a pre-existing configuration (predates auth branch).
         // Should be tightened to specific origins in production. Tracked separately.

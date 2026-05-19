@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use bb8::Pool;
 use bb8_tiberius::ConnectionManager;
 use chrono::{DateTime, Utc};
-use remora_common::{ApiKeyInfo, Event, SessionToken, User};
+use remora_common::{ApiKeyInfo, Event, SessionToken, Team, TeamMember, User};
 use serde_json::Value;
 use tiberius::{AuthMethod, Config};
 use tokio::sync::broadcast;
@@ -216,6 +216,18 @@ impl Database for MssqlDb {
             (
                 "20260518000004_api_keys.sql",
                 include_str!("../../../migrations/mssql/20260518000004_api_keys.sql"),
+            ),
+            (
+                "20260519000000_teams.sql",
+                include_str!("../../../migrations/mssql/20260519000000_teams.sql"),
+            ),
+            (
+                "20260519000001_team_members.sql",
+                include_str!("../../../migrations/mssql/20260519000001_team_members.sql"),
+            ),
+            (
+                "20260519000002_sessions_team_id.sql",
+                include_str!("../../../migrations/mssql/20260519000002_sessions_team_id.sql"),
             ),
         ];
 
@@ -1569,6 +1581,328 @@ impl Database for MssqlDb {
         )
         .await?;
         Ok(())
+    }
+
+    // -- teams --
+
+    async fn create_team(
+        &self,
+        name: &str,
+        description: &str,
+        created_by: Uuid,
+    ) -> anyhow::Result<Uuid> {
+        let mut conn = self.conn().await?;
+        let id = Uuid::new_v4();
+        let tib_id = tiberius::Uuid::from_bytes(*id.as_bytes());
+        let tib_cb = tiberius::Uuid::from_bytes(*created_by.as_bytes());
+        conn.execute(
+            "INSERT INTO teams (id, name, description, created_by) VALUES (@P1, @P2, @P3, @P4)",
+            &[&tib_id, &name, &description, &tib_cb],
+        )
+        .await?;
+        Ok(id)
+    }
+
+    async fn get_team(&self, team_id: Uuid) -> anyhow::Result<Option<Team>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT id, name, description, daily_token_cap, created_at \
+                 FROM teams WHERE id = @P1",
+                &[&tib_id],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let id = col_uuid(row, 0)?;
+                let name = col_str(row, 1)?;
+                let description = col_str(row, 2)?;
+                let daily_token_cap = col_i64(row, 3)?;
+                let created_at = col_datetime(row, 4)?;
+                Ok(Some(Team {
+                    id,
+                    name,
+                    description,
+                    daily_token_cap,
+                    created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn list_teams_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Team>> {
+        let mut conn = self.conn().await?;
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT t.id, t.name, t.description, t.daily_token_cap, t.created_at \
+                 FROM teams t JOIN team_members tm ON t.id = tm.team_id \
+                 WHERE tm.user_id = @P1 ORDER BY t.name",
+                &[&tib_uid],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_uuid(row, 0)?;
+            let name = col_str(row, 1)?;
+            let description = col_str(row, 2)?;
+            let daily_token_cap = col_i64(row, 3)?;
+            let created_at = col_datetime(row, 4)?;
+            result.push(Team {
+                id,
+                name,
+                description,
+                daily_token_cap,
+                created_at,
+            });
+        }
+        Ok(result)
+    }
+
+    async fn update_team(
+        &self,
+        team_id: Uuid,
+        name: &str,
+        description: &str,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        conn.execute(
+            "UPDATE teams SET name = @P1, description = @P2 WHERE id = @P3",
+            &[&name, &description, &tib_id],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_team(&self, team_id: Uuid) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        // Clear team_id on sessions before deleting team
+        conn.execute(
+            "UPDATE sessions SET team_id = NULL WHERE team_id = @P1",
+            &[&tib_id],
+        )
+        .await?;
+        conn.execute("DELETE FROM teams WHERE id = @P1", &[&tib_id])
+            .await?;
+        Ok(())
+    }
+
+    // -- team members --
+
+    async fn add_team_member(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_tid = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        conn.execute(
+            "MERGE INTO team_members AS target \
+             USING (SELECT @P1 AS team_id, @P2 AS user_id, @P3 AS role) AS source \
+             ON target.team_id = source.team_id AND target.user_id = source.user_id \
+             WHEN MATCHED THEN UPDATE SET role = source.role \
+             WHEN NOT MATCHED THEN INSERT (team_id, user_id, role) \
+                 VALUES (source.team_id, source.user_id, source.role);",
+            &[&tib_tid, &tib_uid, &role],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn remove_team_member(&self, team_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_tid = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        conn.execute(
+            "DELETE FROM team_members WHERE team_id = @P1 AND user_id = @P2",
+            &[&tib_tid, &tib_uid],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn list_team_members(&self, team_id: Uuid) -> anyhow::Result<Vec<TeamMember>> {
+        let mut conn = self.conn().await?;
+        let tib_tid = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT u.id, u.email, u.display_name, tm.role, tm.joined_at \
+                 FROM team_members tm JOIN users u ON tm.user_id = u.id \
+                 WHERE tm.team_id = @P1 ORDER BY u.display_name",
+                &[&tib_tid],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let user_id = col_uuid(row, 0)?;
+            let email = col_str(row, 1)?;
+            let display_name = col_str(row, 2)?;
+            let role = col_str(row, 3)?;
+            let joined_at = col_datetime(row, 4)?;
+            result.push(TeamMember {
+                user_id,
+                email,
+                display_name,
+                role,
+                joined_at,
+            });
+        }
+        Ok(result)
+    }
+
+    async fn get_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let tib_tid = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT role FROM team_members WHERE team_id = @P1 AND user_id = @P2",
+                &[&tib_tid, &tib_uid],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => Ok(Some(col_str(row, 0)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn update_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_tid = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        conn.execute(
+            "UPDATE team_members SET role = @P1 WHERE team_id = @P2 AND user_id = @P3",
+            &[&role, &tib_tid, &tib_uid],
+        )
+        .await?;
+        Ok(())
+    }
+
+    // -- team-scoped sessions --
+
+    async fn create_session_for_team(
+        &self,
+        description: &str,
+        team_id: Uuid,
+    ) -> anyhow::Result<(Uuid, String, DateTime<Utc>)> {
+        let mut conn = self.conn().await?;
+        let id = Uuid::new_v4();
+        let now = Utc::now();
+        let tib_id = tiberius::Uuid::from_bytes(*id.as_bytes());
+        let tib_tid = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let now_dto = chrono::DateTime::<chrono::FixedOffset>::from(now);
+
+        conn.execute(
+            "INSERT INTO sessions (id, description, created_at, updated_at, \
+             daily_token_cap, tokens_used_today, tokens_reset_date, team_id) \
+             VALUES (@P1, @P2, @P3, @P4, 999999999, 0, CAST(GETDATE() AS DATE), @P5)",
+            &[&tib_id, &description, &now_dto, &now_dto, &tib_tid],
+        )
+        .await?;
+
+        Ok((id, description.to_string(), now))
+    }
+
+    async fn list_sessions_for_team(
+        &self,
+        team_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>> {
+        let mut conn = self.conn().await?;
+        let tib_tid = tiberius::Uuid::from_bytes(*team_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT id, description, created_at, status FROM sessions \
+                 WHERE team_id = @P1 ORDER BY created_at DESC",
+                &[&tib_tid],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_uuid(row, 0)?;
+            let desc = col_str(row, 1)?;
+            let created = col_datetime(row, 2)?;
+            let status = col_str(row, 3)?;
+            result.push((id, desc, created, status));
+        }
+        Ok(result)
+    }
+
+    async fn get_session_team(&self, session_id: Uuid) -> anyhow::Result<Option<Uuid>> {
+        let mut conn = self.conn().await?;
+        let tib_id = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        let rows = conn
+            .query("SELECT team_id FROM sessions WHERE id = @P1", &[&tib_id])
+            .await?
+            .into_first_result()
+            .await?;
+        match rows.first() {
+            Some(row) => {
+                let tid: Option<tiberius::Uuid> = row.try_get::<tiberius::Uuid, _>(0)?;
+                match tid {
+                    Some(g) => Ok(Some(Uuid::from_bytes(*g.as_bytes()))),
+                    None => Ok(None),
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    // -- user dashboard --
+
+    async fn list_sessions_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String, Option<String>)>> {
+        let mut conn = self.conn().await?;
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        let rows = conn
+            .query(
+                "SELECT DISTINCT s.id, s.description, s.created_at, s.status, t.name \
+                 FROM sessions s \
+                 LEFT JOIN teams t ON s.team_id = t.id \
+                 LEFT JOIN team_members tm ON s.team_id = tm.team_id \
+                 WHERE s.team_id IS NULL OR tm.user_id = @P1 \
+                 ORDER BY s.created_at DESC",
+                &[&tib_uid],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_uuid(row, 0)?;
+            let desc = col_str(row, 1)?;
+            let created = col_datetime(row, 2)?;
+            let status = col_str(row, 3)?;
+            let team_name = col_str_opt(row, 4)?;
+            result.push((id, desc, created, status, team_name));
+        }
+        Ok(result)
     }
 
     // -- notifications --

@@ -5,7 +5,7 @@ pub mod sqlite;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use remora_common::{ApiKeyInfo, Event, SessionToken, User};
+use remora_common::{ApiKeyInfo, Event, SessionToken, Team, TeamMember, User};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -223,6 +223,54 @@ pub trait Database: Send + Sync + 'static {
     async fn validate_api_key(&self, key_hash: &str) -> anyhow::Result<Option<User>>;
     async fn list_api_keys(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiKeyInfo>>;
     async fn revoke_api_key(&self, key_id: Uuid, user_id: Uuid) -> anyhow::Result<()>;
+
+    // -- teams --
+    async fn create_team(
+        &self,
+        name: &str,
+        description: &str,
+        created_by: Uuid,
+    ) -> anyhow::Result<Uuid>;
+    async fn get_team(&self, team_id: Uuid) -> anyhow::Result<Option<Team>>;
+    async fn list_teams_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Team>>;
+    async fn update_team(&self, team_id: Uuid, name: &str, description: &str)
+        -> anyhow::Result<()>;
+    async fn delete_team(&self, team_id: Uuid) -> anyhow::Result<()>;
+
+    // -- team members --
+    async fn add_team_member(&self, team_id: Uuid, user_id: Uuid, role: &str)
+        -> anyhow::Result<()>;
+    async fn remove_team_member(&self, team_id: Uuid, user_id: Uuid) -> anyhow::Result<()>;
+    async fn list_team_members(&self, team_id: Uuid) -> anyhow::Result<Vec<TeamMember>>;
+    async fn get_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<String>>;
+    async fn update_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()>;
+
+    // -- team-scoped sessions --
+    async fn create_session_for_team(
+        &self,
+        description: &str,
+        team_id: Uuid,
+    ) -> anyhow::Result<(Uuid, String, DateTime<Utc>)>;
+    async fn list_sessions_for_team(
+        &self,
+        team_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>>;
+    async fn get_session_team(&self, session_id: Uuid) -> anyhow::Result<Option<Uuid>>;
+
+    // -- user dashboard --
+    async fn list_sessions_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String, Option<String>)>>;
 
     // -- notifications --
     /// Start listening for new-event notifications.  Returns a receiver
@@ -950,6 +998,160 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.revoke_api_key(key_id, user_id).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.revoke_api_key(key_id, user_id).await,
+        }
+    }
+
+    // -- teams --
+    async fn create_team(
+        &self,
+        name: &str,
+        description: &str,
+        created_by: Uuid,
+    ) -> anyhow::Result<Uuid> {
+        match self {
+            Self::Postgres(db) => db.create_team(name, description, created_by).await,
+            Self::Sqlite(db) => db.create_team(name, description, created_by).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.create_team(name, description, created_by).await,
+        }
+    }
+    async fn get_team(&self, team_id: Uuid) -> anyhow::Result<Option<Team>> {
+        match self {
+            Self::Postgres(db) => db.get_team(team_id).await,
+            Self::Sqlite(db) => db.get_team(team_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_team(team_id).await,
+        }
+    }
+    async fn list_teams_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Team>> {
+        match self {
+            Self::Postgres(db) => db.list_teams_for_user(user_id).await,
+            Self::Sqlite(db) => db.list_teams_for_user(user_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_teams_for_user(user_id).await,
+        }
+    }
+    async fn update_team(
+        &self,
+        team_id: Uuid,
+        name: &str,
+        description: &str,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.update_team(team_id, name, description).await,
+            Self::Sqlite(db) => db.update_team(team_id, name, description).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.update_team(team_id, name, description).await,
+        }
+    }
+    async fn delete_team(&self, team_id: Uuid) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.delete_team(team_id).await,
+            Self::Sqlite(db) => db.delete_team(team_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.delete_team(team_id).await,
+        }
+    }
+
+    // -- team members --
+    async fn add_team_member(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.add_team_member(team_id, user_id, role).await,
+            Self::Sqlite(db) => db.add_team_member(team_id, user_id, role).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.add_team_member(team_id, user_id, role).await,
+        }
+    }
+    async fn remove_team_member(&self, team_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.remove_team_member(team_id, user_id).await,
+            Self::Sqlite(db) => db.remove_team_member(team_id, user_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.remove_team_member(team_id, user_id).await,
+        }
+    }
+    async fn list_team_members(&self, team_id: Uuid) -> anyhow::Result<Vec<TeamMember>> {
+        match self {
+            Self::Postgres(db) => db.list_team_members(team_id).await,
+            Self::Sqlite(db) => db.list_team_members(team_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_team_members(team_id).await,
+        }
+    }
+    async fn get_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<String>> {
+        match self {
+            Self::Postgres(db) => db.get_team_member_role(team_id, user_id).await,
+            Self::Sqlite(db) => db.get_team_member_role(team_id, user_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_team_member_role(team_id, user_id).await,
+        }
+    }
+    async fn update_team_member_role(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.update_team_member_role(team_id, user_id, role).await,
+            Self::Sqlite(db) => db.update_team_member_role(team_id, user_id, role).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.update_team_member_role(team_id, user_id, role).await,
+        }
+    }
+
+    // -- team-scoped sessions --
+    async fn create_session_for_team(
+        &self,
+        description: &str,
+        team_id: Uuid,
+    ) -> anyhow::Result<(Uuid, String, DateTime<Utc>)> {
+        match self {
+            Self::Postgres(db) => db.create_session_for_team(description, team_id).await,
+            Self::Sqlite(db) => db.create_session_for_team(description, team_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.create_session_for_team(description, team_id).await,
+        }
+    }
+    async fn list_sessions_for_team(
+        &self,
+        team_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String)>> {
+        match self {
+            Self::Postgres(db) => db.list_sessions_for_team(team_id).await,
+            Self::Sqlite(db) => db.list_sessions_for_team(team_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_sessions_for_team(team_id).await,
+        }
+    }
+    async fn get_session_team(&self, session_id: Uuid) -> anyhow::Result<Option<Uuid>> {
+        match self {
+            Self::Postgres(db) => db.get_session_team(session_id).await,
+            Self::Sqlite(db) => db.get_session_team(session_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_session_team(session_id).await,
+        }
+    }
+
+    // -- user dashboard --
+    async fn list_sessions_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String, Option<String>)>> {
+        match self {
+            Self::Postgres(db) => db.list_sessions_for_user(user_id).await,
+            Self::Sqlite(db) => db.list_sessions_for_user(user_id).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_sessions_for_user(user_id).await,
         }
     }
 
