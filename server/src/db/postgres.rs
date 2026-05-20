@@ -1193,7 +1193,7 @@ impl Database for PostgresDb {
              (SELECT COUNT(*) FROM session_runs WHERE status = 'success'), \
              (SELECT COUNT(*) FROM session_runs WHERE status = 'failed'), \
              (SELECT COUNT(*) FROM session_runs WHERE status = 'timeout'), \
-             (SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (finished_at - started_at))), 0.0) \
+             (SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (finished_at - started_at)))::FLOAT8, 0.0) \
               FROM session_runs WHERE finished_at IS NOT NULL)",
         )
         .fetch_one(&self.pool)
