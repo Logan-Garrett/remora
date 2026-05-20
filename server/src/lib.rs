@@ -432,11 +432,20 @@ async fn ws_upgrade(
         }
     }
 
+    // Determine the user's role for RBAC enforcement in command dispatch.
+    // Admin team token → "admin", JWT/API key → user's role, Session token → "guest".
+    let role = match &token_kind {
+        TokenKind::Admin => "admin".to_string(),
+        TokenKind::UserJwt(user) | TokenKind::ApiKey(user) => user.role.clone(),
+        TokenKind::Session(_) => "guest".to_string(),
+        TokenKind::Invalid => unreachable!(),
+    };
+
     // If authenticated via JWT/API key, use the user's display_name;
     // otherwise fall back to ?name= query param.
     let name = jwt_name.unwrap_or_else(|| query.name.unwrap_or_else(|| "anon".into()));
     let owner_key = query.owner_key;
-    ws.on_upgrade(move |socket| ws::handle_socket(state, session_id, name, owner_key, socket))
+    ws.on_upgrade(move |socket| ws::handle_socket(state, session_id, name, role, owner_key, socket))
         .into_response()
 }
 

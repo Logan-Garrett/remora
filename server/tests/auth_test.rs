@@ -27,7 +27,12 @@ async fn register_and_login() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["email"], "alice@example.com");
     assert_eq!(body["display_name"], "Alice");
-    assert_eq!(body["role"], "member");
+    // The first user in a fresh DB is auto-promoted to admin; subsequent users get "member".
+    let role = body["role"].as_str().unwrap();
+    assert!(
+        role == "admin" || role == "member",
+        "role should be admin or member, got: {role}"
+    );
 
     // Login
     let resp = client

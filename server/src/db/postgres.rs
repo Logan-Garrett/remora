@@ -718,6 +718,13 @@ impl Database for PostgresDb {
         Ok(row.flatten())
     }
 
+    async fn count_users(&self) -> anyhow::Result<i64> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
     // -- refresh tokens --
 
     async fn store_refresh_token(

@@ -1,3 +1,4 @@
+use crate::auth;
 use crate::claude;
 use crate::context::ContextMode;
 use crate::db::Database;
@@ -8,29 +9,138 @@ use remora_common::ClientMsg;
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// Return the command name for a `ClientMsg` variant (used in RBAC error messages).
+fn command_name(msg: &ClientMsg) -> &'static str {
+    match msg {
+        ClientMsg::Chat { .. } => "chat",
+        ClientMsg::Run { .. } => "/run",
+        ClientMsg::RunAll { .. } => "/run-all",
+        ClientMsg::Clear { .. } => "/clear",
+        ClientMsg::Add { .. } => "/add",
+        ClientMsg::Diff { .. } => "/diff",
+        ClientMsg::Fetch { .. } => "/fetch",
+        ClientMsg::RepoAdd { .. } => "/repo add",
+        ClientMsg::RepoRemove { .. } => "/repo remove",
+        ClientMsg::RepoList { .. } => "/repo list",
+        ClientMsg::Allowlist { .. } => "/allowlist",
+        ClientMsg::AllowlistAdd { .. } => "/allowlist add",
+        ClientMsg::AllowlistRemove { .. } => "/allowlist remove",
+        ClientMsg::Approve { .. } => "/approve",
+        ClientMsg::Who { .. } => "/who",
+        ClientMsg::Kick { .. } => "/kick",
+        ClientMsg::SessionInfo { .. } => "/info",
+        ClientMsg::Help { .. } => "/help",
+        ClientMsg::Trust { .. } => "/trust",
+        ClientMsg::Untrust { .. } => "/untrust",
+    }
+}
+
+/// Check whether the given role has permission to execute the command.
+/// Returns `Ok(())` if permitted, or `Err(message)` if denied.
+///
+/// Role hierarchy: admin(4) > member(3) > viewer(2) > guest(1)
+///
+/// Permission mapping:
+/// - **admin**: all commands
+/// - **member**: chat, run, run_all, add, fetch, repo_add, repo_remove, repo_list,
+///   diff, help, who, session_info, clear, allowlist, allowlist_add,
+///   allowlist_remove, approve, kick, trust, untrust
+/// - **viewer**: chat, help, who, session_info (read-only)
+/// - **guest**: chat, help, who (minimal)
+///
+/// Note: kick/trust/untrust additionally require admin role or session owner status,
+/// which is enforced inside the respective handlers.
+fn check_rbac(role: &str, msg: &ClientMsg) -> Result<(), String> {
+    let level = auth::role_level(role);
+
+    match msg {
+        // All roles can use: chat, help, who
+        ClientMsg::Chat { .. } | ClientMsg::Help { .. } | ClientMsg::Who { .. } => Ok(()),
+
+        // viewer(2)+ can use /info
+        ClientMsg::SessionInfo { .. } => {
+            if level >= auth::role_level("viewer") {
+                Ok(())
+            } else {
+                Err(format!(
+                    "insufficient permissions: {} cannot use {}",
+                    role,
+                    command_name(msg)
+                ))
+            }
+        }
+
+        // member(3)+ can use most commands
+        ClientMsg::Run { .. }
+        | ClientMsg::RunAll { .. }
+        | ClientMsg::Clear { .. }
+        | ClientMsg::Add { .. }
+        | ClientMsg::Diff { .. }
+        | ClientMsg::Fetch { .. }
+        | ClientMsg::RepoAdd { .. }
+        | ClientMsg::RepoRemove { .. }
+        | ClientMsg::RepoList { .. }
+        | ClientMsg::Allowlist { .. }
+        | ClientMsg::AllowlistAdd { .. }
+        | ClientMsg::AllowlistRemove { .. }
+        | ClientMsg::Approve { .. } => {
+            if level >= auth::role_level("member") {
+                Ok(())
+            } else {
+                Err(format!(
+                    "insufficient permissions: {} cannot use {}",
+                    role,
+                    command_name(msg)
+                ))
+            }
+        }
+
+        // kick/trust/untrust: member(3)+ at the RBAC layer.
+        // The handlers additionally enforce admin-or-owner for trust/untrust/kick.
+        ClientMsg::Kick { .. } | ClientMsg::Trust { .. } | ClientMsg::Untrust { .. } => {
+            if level >= auth::role_level("member") {
+                Ok(())
+            } else {
+                Err(format!(
+                    "insufficient permissions: {} cannot use {}",
+                    role,
+                    command_name(msg)
+                ))
+            }
+        }
+    }
+}
+
 /// Dispatch a client message to the appropriate handler.
 /// Each handler inserts events into the DB (which triggers NOTIFY -> broadcast).
 ///
 /// `verified_author` is the authenticated name from the WebSocket connection
 /// and is used for ALL event insertions, ignoring any client-supplied author field.
 ///
-/// TODO(RBAC): Role-based access control is not yet enforced here. The WebSocket
-/// connection authenticates the user but does not propagate the user's role into
-/// this dispatch context. Once role info is available (e.g. passed alongside
-/// `verified_author`), enforce the following policy:
-///
-/// - Viewer/Guest: can only use /who and /help. All other commands return an error.
-/// - Member: full access except admin-only commands (/kick, /trust, /untrust).
-/// - Admin: full access to all commands.
-///
-/// See `auth::role_level()` and `auth::require_role()` for the existing helpers.
+/// `verified_role` is the user's role from authentication (admin/member/viewer/guest)
+/// and is used for RBAC enforcement before dispatching to command handlers.
 pub async fn dispatch(
     state: Arc<AppState>,
     session_id: Uuid,
     msg: ClientMsg,
     verified_author: &str,
+    verified_role: &str,
 ) {
+    // RBAC: check if the user's role permits this command
+    if let Err(err_msg) = check_rbac(verified_role, &msg) {
+        let _ = insert_event(
+            &state.db,
+            session_id,
+            "system",
+            "system",
+            serde_json::json!({"text": err_msg}),
+        )
+        .await;
+        return;
+    }
+
     let author = verified_author;
+    let role = verified_role;
     let result = match msg {
         ClientMsg::Chat { text, .. } => handle_chat(&state, session_id, author, &text).await,
         ClientMsg::Run { .. } => {
@@ -61,12 +171,16 @@ pub async fn dispatch(
             domain, approved, ..
         } => handle_approve(&state, session_id, author, &domain, approved).await,
         ClientMsg::Who { .. } => handle_who(&state, session_id, author).await,
-        ClientMsg::Kick { target, .. } => handle_kick(&state, session_id, author, &target).await,
+        ClientMsg::Kick { target, .. } => {
+            handle_kick(&state, session_id, author, role, &target).await
+        }
         ClientMsg::SessionInfo { .. } => handle_session_info(&state, session_id, author).await,
         ClientMsg::Help { .. } => handle_help(&state, session_id, author).await,
-        ClientMsg::Trust { target, .. } => handle_trust(&state, session_id, author, &target).await,
+        ClientMsg::Trust { target, .. } => {
+            handle_trust(&state, session_id, author, role, &target).await
+        }
         ClientMsg::Untrust { target, .. } => {
-            handle_untrust(&state, session_id, author, &target).await
+            handle_untrust(&state, session_id, author, role, &target).await
         }
     };
 
@@ -612,8 +726,29 @@ async fn handle_kick(
     state: &AppState,
     session_id: Uuid,
     author: &str,
+    role: &str,
     target: &str,
 ) -> anyhow::Result<()> {
+    // Only admin or session owner can kick
+    let is_admin = auth::role_level(role) >= auth::role_level("admin");
+    let is_owner = state
+        .get_session_owner(session_id)
+        .await
+        .map(|o| o == author)
+        .unwrap_or(false);
+
+    if !is_admin && !is_owner {
+        insert_event(
+            &state.db,
+            session_id,
+            "system",
+            "system",
+            serde_json::json!({"text": "Only the session owner or an admin can kick participants."}),
+        )
+        .await?;
+        return Ok(());
+    }
+
     // Insert kick event (the WS handler watches for these)
     insert_event(
         &state.db,
@@ -695,26 +830,26 @@ async fn handle_session_info(
 async fn handle_help(state: &AppState, session_id: Uuid, _author: &str) -> anyhow::Result<()> {
     let help = "\
 Commands:
-  /run          — Run Claude (context since last run)
-  /run-all      — Run Claude (full context)
-  /clear        — Insert context boundary
-  /who          — List connected participants
-  /info         — Session info (id, tokens, repos, status)
-  /diff         — Show git diff for session repos
-  /add <path>   — Add a file to context
-  /fetch <url>  — Fetch a URL into context
-  /repo list    — List repos in this session
-  /repo add <url>    — Clone a git repo into the session
-  /repo remove <name> — Remove a repo
-  /allowlist         — Show allowed domains
-  /allowlist add <domain>    — Allow a domain for fetch
-  /allowlist remove <domain> — Remove from allowlist
-  /approve <domain>  — Approve a pending fetch request
-  /deny <domain>     — Deny a pending fetch request
-  /kick <name>       — Disconnect a participant
-  /trust <name>      — Mark a participant as trusted (owner only)
-  /untrust <name>    — Remove a participant from the trusted list (owner only)
-  /help              — Show this help";
+  /run          \u{2014} Run Claude (context since last run)
+  /run-all      \u{2014} Run Claude (full context)
+  /clear        \u{2014} Insert context boundary
+  /who          \u{2014} List connected participants
+  /info         \u{2014} Session info (id, tokens, repos, status)
+  /diff         \u{2014} Show git diff for session repos
+  /add <path>   \u{2014} Add a file to context
+  /fetch <url>  \u{2014} Fetch a URL into context
+  /repo list    \u{2014} List repos in this session
+  /repo add <url>    \u{2014} Clone a git repo into the session
+  /repo remove <name> \u{2014} Remove a repo
+  /allowlist         \u{2014} Show allowed domains
+  /allowlist add <domain>    \u{2014} Allow a domain for fetch
+  /allowlist remove <domain> \u{2014} Remove from allowlist
+  /approve <domain>  \u{2014} Approve a pending fetch request
+  /deny <domain>     \u{2014} Deny a pending fetch request
+  /kick <name>       \u{2014} Disconnect a participant
+  /trust <name>      \u{2014} Mark a participant as trusted (owner only)
+  /untrust <name>    \u{2014} Remove a participant from the trusted list (owner only)
+  /help              \u{2014} Show this help";
 
     insert_event(
         &state.db,
@@ -731,17 +866,23 @@ async fn handle_trust(
     state: &AppState,
     session_id: Uuid,
     author: &str,
+    role: &str,
     target: &str,
 ) -> anyhow::Result<()> {
     // Only the session owner can trust participants
-    let owner = state.get_session_owner(session_id).await;
-    if owner.as_deref() != Some(author) {
+    let is_owner = state
+        .get_session_owner(session_id)
+        .await
+        .map(|o| o == author)
+        .unwrap_or(false);
+
+    if !is_owner {
         insert_event(
             &state.db,
             session_id,
             "system",
             "system",
-            serde_json::json!({"text": "Only the session owner can trust/untrust participants."}),
+            serde_json::json!({"text": "Only the session owner or an admin can trust/untrust participants."}),
         )
         .await?;
         return Ok(());
@@ -753,7 +894,7 @@ async fn handle_trust(
         session_id,
         "system",
         "system",
-        serde_json::json!({"text": format!("{target} is now trusted — their messages will be treated as instructions to Claude.")}),
+        serde_json::json!({"text": format!("{target} is now trusted \u{2014} their messages will be treated as instructions to Claude.")}),
     )
     .await?;
     Ok(())
@@ -763,17 +904,24 @@ async fn handle_untrust(
     state: &AppState,
     session_id: Uuid,
     author: &str,
+    role: &str,
     target: &str,
 ) -> anyhow::Result<()> {
-    // Only the session owner can untrust participants
-    let owner = state.get_session_owner(session_id).await;
-    if owner.as_deref() != Some(author) {
+    // Only admin or session owner can untrust participants
+    let is_admin = auth::role_level(role) >= auth::role_level("admin");
+    let is_owner = state
+        .get_session_owner(session_id)
+        .await
+        .map(|o| o == author)
+        .unwrap_or(false);
+
+    if !is_admin && !is_owner {
         insert_event(
             &state.db,
             session_id,
             "system",
             "system",
-            serde_json::json!({"text": "Only the session owner can trust/untrust participants."}),
+            serde_json::json!({"text": "Only the session owner or an admin can trust/untrust participants."}),
         )
         .await?;
         return Ok(());
@@ -789,4 +937,149 @@ async fn handle_untrust(
     )
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use remora_common::ClientMsg;
+
+    #[test]
+    fn rbac_admin_allows_all() {
+        let commands = vec![
+            ClientMsg::Chat {
+                text: "hi".into(),
+                author: String::new(),
+            },
+            ClientMsg::Run {
+                author: String::new(),
+            },
+            ClientMsg::RunAll {
+                author: String::new(),
+            },
+            ClientMsg::Clear {
+                author: String::new(),
+            },
+            ClientMsg::Add {
+                path: "f".into(),
+                author: String::new(),
+            },
+            ClientMsg::Diff {
+                author: String::new(),
+            },
+            ClientMsg::Fetch {
+                url: "u".into(),
+                author: String::new(),
+            },
+            ClientMsg::Who {
+                author: String::new(),
+            },
+            ClientMsg::Help {
+                author: String::new(),
+            },
+            ClientMsg::SessionInfo {
+                author: String::new(),
+            },
+            ClientMsg::Kick {
+                target: "t".into(),
+                author: String::new(),
+            },
+            ClientMsg::Trust {
+                target: "t".into(),
+                author: String::new(),
+            },
+            ClientMsg::Untrust {
+                target: "t".into(),
+                author: String::new(),
+            },
+        ];
+        for cmd in commands {
+            assert!(
+                check_rbac("admin", &cmd).is_ok(),
+                "admin should be allowed: {}",
+                command_name(&cmd)
+            );
+        }
+    }
+
+    #[test]
+    fn rbac_viewer_blocked_from_run() {
+        let cmd = ClientMsg::Run {
+            author: String::new(),
+        };
+        let result = check_rbac("viewer", &cmd);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("viewer cannot use /run"));
+    }
+
+    #[test]
+    fn rbac_viewer_allowed_info() {
+        let cmd = ClientMsg::SessionInfo {
+            author: String::new(),
+        };
+        assert!(check_rbac("viewer", &cmd).is_ok());
+    }
+
+    #[test]
+    fn rbac_guest_blocked_from_info() {
+        let cmd = ClientMsg::SessionInfo {
+            author: String::new(),
+        };
+        let result = check_rbac("guest", &cmd);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("guest cannot use /info"));
+    }
+
+    #[test]
+    fn rbac_guest_allowed_chat_who_help() {
+        assert!(check_rbac(
+            "guest",
+            &ClientMsg::Chat {
+                text: "hi".into(),
+                author: String::new()
+            }
+        )
+        .is_ok());
+        assert!(check_rbac(
+            "guest",
+            &ClientMsg::Who {
+                author: String::new()
+            }
+        )
+        .is_ok());
+        assert!(check_rbac(
+            "guest",
+            &ClientMsg::Help {
+                author: String::new()
+            }
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn rbac_member_allowed_run_and_kick() {
+        assert!(check_rbac(
+            "member",
+            &ClientMsg::Run {
+                author: String::new()
+            }
+        )
+        .is_ok());
+        assert!(check_rbac(
+            "member",
+            &ClientMsg::Kick {
+                target: "t".into(),
+                author: String::new()
+            }
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn rbac_unknown_role_blocked() {
+        let cmd = ClientMsg::Run {
+            author: String::new(),
+        };
+        assert!(check_rbac("unknown", &cmd).is_err());
+    }
 }
