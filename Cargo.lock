@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "remora-common"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "chrono",
  "serde",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "remora-server"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "argon2",

@@ -862,6 +862,26 @@ Commands:
     Ok(())
 }
 
+// TODO(per-participant-tokens): Replace display-name-based trust with per-participant tokens.
+//
+// Design:
+// 1. Add a `participant_tokens` DB table: (id, session_id, token_hash, display_name, trusted, created_at).
+// 2. When the owner runs `/trust <name>`, generate a unique token (UUID) and store its SHA-256
+//    hash in `participant_tokens` with `trusted = true`. Return the raw token to the owner.
+// 3. The owner shares the token out-of-band. When a participant connects via WS with
+//    `?participant_token=<raw>`, the server hashes it, looks up the row, and:
+//    - Sets the participant's display_name on the row (binding the token to the identity).
+//    - Marks the participant as trusted in the existing `trusted_participants` table.
+// 4. `/untrust <name>` revokes the participant token (deletes the row) and removes trust.
+// 5. Benefits: trust is cryptographically bound to a token, not a spoofable display name.
+//    A participant who reconnects with a different name cannot inherit trust unless they
+//    have the token.
+// 6. Backward compatibility: keep display-name trust as a fallback for sessions that
+//    don't use participant tokens (legacy behavior).
+//
+// This is a significant change spanning DB migrations (all 3 backends), the trust/untrust
+// handlers, the WS upgrade handler, and the web client UI. Deferring to a dedicated PR.
+
 async fn handle_trust(
     state: &AppState,
     session_id: Uuid,
