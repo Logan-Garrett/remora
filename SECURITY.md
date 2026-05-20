@@ -34,12 +34,20 @@ User passwords are hashed with **argon2** (the recommended memory-hard KDF). The
 
 ### OAuth
 
-GitHub and Google OAuth 2.0 are supported. The flow:
+GitHub and Google OAuth 2.0 are supported. Two flows are available depending on the calling context:
 
+**Popup flow (web client):**
+1. The web client opens the redirect endpoint in a popup window, passing `?origin=<web-client-origin>`.
+2. The server encodes the origin into the CSRF `state` parameter (UUID + HMAC signature using the JWT secret). This is self-validating, requiring no server-side storage.
+3. The callback endpoint validates the `state` signature and extracts the origin before exchanging the authorization code.
+4. On success, the server returns an HTML page that calls `window.opener.postMessage(authData, origin)` targeted to the exact origin, then closes the popup. The web client validates `event.origin` matches the server origin before accepting the message.
+
+**Non-browser flow (CLI, integrations):**
 1. The redirect endpoint generates a CSRF `state` parameter (UUID + HMAC signature using the JWT secret). This is self-validating, requiring no server-side storage.
 2. The callback endpoint validates the `state` signature before exchanging the authorization code.
-3. The OAuth redirect base URL is configurable via `REMORA_OAUTH_REDIRECT_URL` (default `http://localhost:7200`).
-4. If the OAuth provider email matches an existing account, the OAuth connection is linked to that account. Otherwise, a new account is created.
+3. On success, the server returns a JSON `AuthResponse`, or redirects to `REMORA_OAUTH_REDIRECT_URL` with the JWT as a query parameter if that env var is set.
+
+In both flows: if the OAuth provider email matches an existing account, the OAuth connection is linked to that account. Otherwise, a new account is created.
 
 ### API key hashing
 
@@ -65,6 +73,29 @@ The `check_any_token()` function in `lib.rs` resolves credentials in order:
 2. JWT (decoded and user looked up from DB)
 3. Session invite token (DB lookup, scoped to a single session)
 4. API key (SHA-256 hash lookup)
+
+## Admin Endpoint Authorization
+
+Admin endpoints (`/admin/*`) are handled by `server/src/admin.rs`. The `require_admin()` helper accepts any of:
+- The shared admin team token (`REMORA_TEAM_TOKEN`) via constant-time comparison
+- A JWT with `role == "admin"` issued by `/auth/login` or OAuth
+- An API key with `role == "admin"` (SHA-256 hash lookup)
+
+This means individual user accounts can be granted admin access without distributing the team token. The admin role is stored in the `users.role` column and checked at request time, not embedded permanently in long-lived tokens (refresh rotates the role claim on each access token re-issue).
+
+## Session Delete Authorization
+
+`DELETE /sessions/:id` requires the requester to be either the session owner (authenticated user whose ID matches `sessions.created_by`) or an admin-level credential. Non-owners and non-admins receive `403 Forbidden`. The admin team token always satisfies the admin check.
+
+## OAuth postMessage Security
+
+The popup-based OAuth flow uses two layers of protection to prevent cross-origin token theft:
+
+1. **HMAC-signed state with origin** -- the web client passes its own origin as `?origin=<url>` when opening the OAuth popup. The server embeds this origin into the CSRF `state` parameter (format: `nonce|base64(origin)`, HMAC-SHA256 signed with `REMORA_JWT_SECRET`). The callback validates the HMAC before extracting the origin, ensuring the origin cannot be tampered with after the redirect starts.
+
+2. **Targeted postMessage** -- the callback page calls `window.opener.postMessage(authData, origin)` using the exact origin extracted from the validated state. Browsers will not deliver the message to any other origin. The web client additionally validates `event.origin` matches the server origin before accepting the payload.
+
+Without the `?origin=` parameter, the OAuth flow returns JSON directly (backward compatible for CLI and integration use). The HMAC validation still runs to protect the CSRF check regardless of flow.
 
 ## Team Isolation
 
@@ -95,7 +126,7 @@ These are documented design decisions, not bugs:
 
 - **RBAC not enforced in WebSocket commands** -- Role checks exist as helpers but are not yet integrated into the command dispatch pipeline. A viewer can currently execute any command once connected. This is tracked as a TODO in `commands.rs`.
 
-- **Permissive CORS** -- The server uses `CorsLayer::permissive()`. This is a pre-existing configuration that predates the auth system. It should be tightened to specific origins in production.
+- **Permissive CORS** -- The server uses `CorsLayer::permissive()`. This is a pre-existing configuration that predates the auth system. It should be tightened to specific origins in production. The OAuth postMessage flow uses targeted origin validation (`postMessage(data, origin)`) to mitigate this for OAuth callbacks specifically.
 
 - **`--dangerously-skip-permissions` is on by default** -- Claude runs with full permissions on the server host unless `REMORA_SKIP_PERMISSIONS=false` is set, or `REMORA_USE_SANDBOX=true` is used to isolate Claude in a Docker container per session. Only run Remora on hosts you trust, with a token you keep secret.
 

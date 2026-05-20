@@ -16,7 +16,8 @@ Remora today is designed as a **single-server, single-team tool**. One server pr
 | Per-session event log, run history in DB | UI to explore or query that history |
 | Token usage tracked per session | No dashboard or alerts for quota |
 | Docker sandbox isolation | No network egress control inside sandbox |
-| Single team token auth | Per-session tokens, OAuth, SSO |
+| Team token, user accounts, JWT, OAuth (GitHub/Google) with popup+postMessage, API keys | SAML / SSO (Okta, Azure AD) |
+| Admin dashboard: usage, analytics, session management, user roles, audit log, Prometheus metrics | Allowlist management UI, auto-promote first user to admin |
 
 ---
 
@@ -68,8 +69,8 @@ This builds on per-session invite tokens (above) and eliminates the last name-ba
 ### Auth service -- DONE
 Built-in JWT-based auth integrated into the existing DB. Short-lived access tokens (default 1h) with refresh token rotation (default 7d). Atomic token consumption prevents race conditions. All three DB backends (Postgres, SQLite, MSSQL) supported.
 
-### OAuth / SSO -- PARTIALLY DONE
-- **OAuth 2.0** -- GitHub and Google sign-in implemented with CSRF state validation
+### OAuth / SSO -- MOSTLY DONE
+- **OAuth 2.0** -- DONE. GitHub and Google sign-in implemented end-to-end: server-side handlers with HMAC-signed CSRF state (origin embedded), web client OAuth buttons using a popup+postMessage flow with origin validation, and `isAdmin` flag propagated through all login paths
 - **SAML / SSO** -- not yet implemented (Okta, Azure AD, Google Workspace)
 - **API keys per user** -- DONE. `rmk_` prefixed keys with SHA-256 hashing
 
@@ -98,11 +99,8 @@ Right now running separate teams means running separate servers. That's fine but
 - Team member roles: admin, member, viewer
 - Unique team names enforced at the DB level
 
-### User dashboard -- DONE (backend API)
-Backend `GET /dashboard` endpoint returns all sessions the authenticated user has access to across all their teams, with team name annotations. Includes:
-- All sessions you have access to (via team membership)
-- Session status, description, creation time, and team name
-- Frontend UI for the dashboard is a separate task
+### User dashboard -- DONE
+Backend `GET /dashboard` endpoint returns all sessions the authenticated user has access to across all their teams, with team name annotations. Admin users also have access to the admin dashboard panel in the web client (separate from the per-user dashboard).
 
 ### Cross-team isolation -- DONE
 Teams cannot see each other's sessions. Enforced at multiple layers:
@@ -146,31 +144,31 @@ Before idle cleanup deletes a workspace, optionally:
 
 The schema already captures a surprising amount — it just isn't surfaced anywhere.
 
-### Usage dashboard
-The `sessions` table already tracks `tokens_used_today`, `daily_token_cap`, and `tokens_reset_date`. A dashboard could show:
-- Token burn rate per session and globally
-- Daily / weekly usage trends
-- Quota headroom and alerts when approaching limits
+### Usage dashboard -- DONE
+Global and per-session token usage surfaced via `GET /admin/usage`. The admin dashboard Overview tab shows a global daily usage summary and a per-session breakdown table.
 
-### Run analytics
-`session_runs` stores `started_at`, `finished_at`, `status`, and `context_mode` for every Claude invocation. This is enough to show:
-- Run success/failure rates
-- Average run duration
-- Which sessions are most active
-- How often runs timeout or fail
+### Run analytics -- DONE
+`GET /admin/analytics` returns success/failure/timeout counts and average run duration from `session_runs`. Displayed in the admin dashboard Overview tab.
 
-### Admin panel
-- View all sessions, runs, and participants across the server
-- Force-expire or delete sessions
-- Adjust per-session token caps without restarting
-- View and manage the global and per-session fetch allowlists (currently CLI-only via `/allowlist`)
+### Admin panel -- DONE
+Full admin panel in the web client (`web/src/admin.ts`) with four tabs:
+- **Overview**: global usage stats and run analytics
+- **Sessions**: list all sessions; edit per-session quotas; force-expire or force-delete
+- **Users**: list all registered users; change roles via dropdown
+- **Audit Log**: paginated log of admin-initiated actions
 
-### Audit log
-- Record who created/deleted sessions, who ran Claude, and when
-- Exportable for compliance
+Admin endpoints (`/admin/*`) accept the shared team token or any JWT/API key with `role == "admin"`.
 
-### Metrics endpoint
-A `/metrics` endpoint in Prometheus format so server operators can plug into existing monitoring stacks (Grafana, Datadog, etc.).
+### Audit log -- DONE
+`audit_events` table records admin actions (quota updates, role changes, forced session operations). Exposed via `GET /admin/audit` with pagination. Migration added for all three DB backends.
+
+### Metrics endpoint -- DONE
+`GET /metrics` returns Prometheus text-format gauges and counters: session totals, active sessions, WebSocket connections, total tokens used today, and run counts by status.
+
+### Remaining Phase 4 work
+- Allowlist management UI (currently CLI-only via `/allowlist` slash command)
+- Auto-promote first registered user to admin role
+- Alert thresholds and notifications when quota headroom is low
 
 ---
 

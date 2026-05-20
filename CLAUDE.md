@@ -20,6 +20,7 @@ remora/
 │   └── src/
 │       ├── lib.rs       Router, auth, REST handlers (sessions, teams, team members, dashboard, health)
 │       ├── auth.rs      Authentication: JWT, password hashing (argon2), OAuth (GitHub/Google), RBAC, API keys
+│       ├── admin.rs     Admin & observability endpoints (/admin/usage, /admin/analytics, /admin/sessions, /admin/users, /admin/audit, /metrics)
 │       ├── ws.rs        WebSocket upgrade, per-connection send loop, ping keepalive
 │       ├── commands.rs  Dispatch ClientMsg variants to handlers (/run, /add, /fetch, etc.)
 │       ├── state.rs     AppState: in-memory subscribers/participants/session_owners maps, Config from env
@@ -44,10 +45,11 @@ remora/
 ├── web/                 TypeScript + Vite — browser client
 │   └── src/
 │       ├── main.ts      Entry point: showLogin → showSessions → showChat state machine
-│       ├── login.ts     Login form, health-gate, sessionStorage config persistence
-│       ├── sessions.ts  Session list, create modal, delete
+│       ├── login.ts     Login form, health-gate, sessionStorage config persistence; tabs: Token/Login/Register + OAuth buttons
+│       ├── sessions.ts  Session list, create modal, delete; shows Admin button when isAdmin is true
 │       ├── chat.ts      WebSocket connection, event rendering, input bar
-│       ├── api.ts       fetch() wrappers for REST + WebSocket URL builder
+│       ├── admin.ts     Admin dashboard: usage/analytics overview, session management, user role management, audit log
+│       ├── api.ts       fetch() wrappers for REST + WebSocket URL builder; adminGetUsage, adminGetAnalytics, adminListSessions, adminUpdateQuota, adminDeleteSession, adminExpireSession, adminListUsers, adminUpdateUserRole, adminListAuditEvents
 │       ├── ws.ts        RemoraSocket class wrapping native WebSocket
 │       ├── commands.ts  Slash command parser (mirrors Neovim plugin parity)
 │       ├── dom.ts       el() helper — XSS-safe DOM builder (textContent only, never innerHTML)
@@ -175,6 +177,25 @@ Teams group users and sessions together. A session can optionally belong to a te
 
 **Cross-team isolation**: WebSocket upgrade checks team membership. If a session belongs to a team, only team members (or admin token holders) can connect. Session tokens that are already scoped to a session bypass the team check.
 
+### Admin & Observability
+
+Admin endpoints are handled in `server/src/admin.rs`. All `/admin/*` routes call `require_admin()`, which accepts the shared team token, or any JWT/API key with `role == "admin"`.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET /admin/usage` | | Global and per-session token usage summary |
+| `GET /admin/analytics` | | Run analytics (success/failure/timeout counts, average duration) |
+| `GET /admin/sessions` | | List all sessions across the server |
+| `PUT /admin/sessions/:id/quota` | | Update a session's `daily_token_cap` |
+| `DELETE /admin/sessions/:id` | | Force-delete a session and its workspace |
+| `POST /admin/sessions/:id/expire` | | Force-expire a session |
+| `GET /admin/users` | | List all registered users |
+| `PUT /admin/users/:id/role` | | Change a user's role |
+| `GET /admin/audit` | | Paginated audit log (`?limit=50&offset=0`) |
+| `GET /metrics` | | Prometheus metrics (unauthenticated) |
+
+The `isAdmin` flag is returned in `AuthResponse` from all login paths (login, OAuth, token auth via `/auth/me`) and stored in `sessionStorage` by the web client. The Admin button in the sessions view is shown only when `isAdmin` is true.
+
 ### Database
 
 The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding a new backend (MySQL) means implementing that trait. SQLite runs migrations from `migrations/sqlite/`, Postgres from `migrations/postgres/`. MSSQL uses a custom runner in `mssql.rs` with a hardcoded list — **adding a new MSSQL migration requires updating that list in mssql.rs**.
@@ -197,6 +218,10 @@ The `DatabaseBackend` trait in `db/mod.rs` abstracts all three backends. Adding 
 - **Refresh token rotation is atomic.** The `consume_refresh_token` DB method deletes and returns the user_id in a single query, preventing race conditions.
 - **OAuth state parameters are self-validating.** HMAC-signed with the JWT secret; no server-side state storage needed.
 - **All PRs require a security review and documentation review before merge/push.** No exceptions for any code changes.
+- **`require_admin` accepts JWT/API key with `role == "admin"`, not only the team token.** Do not gate admin routes on the team token alone.
+- **Session delete is owner-or-admin only.** Non-owners must receive `403 Forbidden` from `DELETE /sessions/:id`.
+- **The `isAdmin` flag must be propagated through all login paths** (token auth, email/password, OAuth, API key). If a new login path is added, it must set `isAdmin` in the response.
+- **Audit events should be written for every admin mutation.** Use `db.insert_audit_event()` after each successful admin action (quota change, role update, forced session operation).
 
 ---
 

@@ -6,8 +6,84 @@ pub mod sqlite;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use remora_common::{ApiKeyInfo, Event, SessionToken, Team, TeamMember, User};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Phase 4: Admin & observability data types
+// ---------------------------------------------------------------------------
+
+/// Per-session token usage for the admin dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionUsage {
+    pub session_id: Uuid,
+    pub description: String,
+    pub tokens_used_today: i64,
+    pub daily_token_cap: i64,
+    pub tokens_reset_date: String,
+}
+
+/// Global usage totals across all sessions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalUsage {
+    pub total_tokens_today: i64,
+    pub total_sessions: i64,
+    pub active_sessions: i64,
+}
+
+/// Aggregated run analytics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunAnalytics {
+    pub total_runs: i64,
+    pub successful: i64,
+    pub failed: i64,
+    pub timed_out: i64,
+    pub avg_duration_secs: f64,
+    pub runs_by_session: Vec<SessionRunCount>,
+}
+
+/// Run count per session (for top-N display).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRunCount {
+    pub session_id: Uuid,
+    pub run_count: i64,
+}
+
+/// Full session info for the admin panel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminSessionInfo {
+    pub id: Uuid,
+    pub description: String,
+    pub created_at: DateTime<Utc>,
+    pub status: String,
+    pub tokens_used_today: i64,
+    pub daily_token_cap: i64,
+}
+
+/// An audit event record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub id: i64,
+    pub user_id: Option<Uuid>,
+    pub action: String,
+    pub target_type: String,
+    pub target_id: Option<String>,
+    pub details: Option<Value>,
+    pub ip_address: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Aggregated data for the Prometheus metrics endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsData {
+    pub sessions_total: i64,
+    pub sessions_active: i64,
+    pub tokens_used_total: i64,
+    pub runs_successful: i64,
+    pub runs_failed: i64,
+    pub runs_timed_out: i64,
+}
 
 /// Notification receiver that yields event IDs as they are inserted.
 pub type NotificationRx = tokio::sync::mpsc::UnboundedReceiver<i64>;
@@ -271,6 +347,50 @@ pub trait Database: Send + Sync + 'static {
         &self,
         user_id: Uuid,
     ) -> anyhow::Result<Vec<(Uuid, String, DateTime<Utc>, String, Option<String>)>>;
+
+    // -- Phase 4: admin & observability --
+
+    /// Per-session usage summary for the admin dashboard.
+    async fn get_usage_summary(&self) -> anyhow::Result<Vec<SessionUsage>>;
+
+    /// Global usage totals.
+    async fn get_global_usage_summary(&self) -> anyhow::Result<GlobalUsage>;
+
+    /// Run analytics aggregates.
+    async fn get_run_analytics(&self) -> anyhow::Result<RunAnalytics>;
+
+    /// List ALL sessions with full details (admin).
+    async fn list_all_sessions_admin(&self) -> anyhow::Result<Vec<AdminSessionInfo>>;
+
+    /// Update a session's daily token cap.
+    async fn update_session_quota(
+        &self,
+        session_id: Uuid,
+        daily_token_cap: i64,
+    ) -> anyhow::Result<()>;
+
+    /// List all users (admin).
+    async fn list_all_users(&self) -> anyhow::Result<Vec<User>>;
+
+    /// Update a user's global role.
+    async fn update_user_role(&self, user_id: Uuid, role: &str) -> anyhow::Result<()>;
+
+    /// Insert an audit event.
+    async fn insert_audit_event(
+        &self,
+        user_id: Option<Uuid>,
+        action: &str,
+        target_type: &str,
+        target_id: Option<&str>,
+        details: Option<Value>,
+        ip_address: Option<&str>,
+    ) -> anyhow::Result<i64>;
+
+    /// List audit events with pagination.
+    async fn list_audit_events(&self, limit: i64, offset: i64) -> anyhow::Result<Vec<AuditEvent>>;
+
+    /// Gather metrics data for Prometheus endpoint.
+    async fn get_metrics_data(&self) -> anyhow::Result<MetricsData>;
 
     // -- notifications --
     /// Start listening for new-event notifications.  Returns a receiver
@@ -1152,6 +1272,109 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.list_sessions_for_user(user_id).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.list_sessions_for_user(user_id).await,
+        }
+    }
+
+    // -- Phase 4: admin & observability --
+    async fn get_usage_summary(&self) -> anyhow::Result<Vec<SessionUsage>> {
+        match self {
+            Self::Postgres(db) => db.get_usage_summary().await,
+            Self::Sqlite(db) => db.get_usage_summary().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_usage_summary().await,
+        }
+    }
+    async fn get_global_usage_summary(&self) -> anyhow::Result<GlobalUsage> {
+        match self {
+            Self::Postgres(db) => db.get_global_usage_summary().await,
+            Self::Sqlite(db) => db.get_global_usage_summary().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_global_usage_summary().await,
+        }
+    }
+    async fn get_run_analytics(&self) -> anyhow::Result<RunAnalytics> {
+        match self {
+            Self::Postgres(db) => db.get_run_analytics().await,
+            Self::Sqlite(db) => db.get_run_analytics().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_run_analytics().await,
+        }
+    }
+    async fn list_all_sessions_admin(&self) -> anyhow::Result<Vec<AdminSessionInfo>> {
+        match self {
+            Self::Postgres(db) => db.list_all_sessions_admin().await,
+            Self::Sqlite(db) => db.list_all_sessions_admin().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_all_sessions_admin().await,
+        }
+    }
+    async fn update_session_quota(
+        &self,
+        session_id: Uuid,
+        daily_token_cap: i64,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.update_session_quota(session_id, daily_token_cap).await,
+            Self::Sqlite(db) => db.update_session_quota(session_id, daily_token_cap).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.update_session_quota(session_id, daily_token_cap).await,
+        }
+    }
+    async fn list_all_users(&self) -> anyhow::Result<Vec<User>> {
+        match self {
+            Self::Postgres(db) => db.list_all_users().await,
+            Self::Sqlite(db) => db.list_all_users().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_all_users().await,
+        }
+    }
+    async fn update_user_role(&self, user_id: Uuid, role: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Postgres(db) => db.update_user_role(user_id, role).await,
+            Self::Sqlite(db) => db.update_user_role(user_id, role).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.update_user_role(user_id, role).await,
+        }
+    }
+    async fn insert_audit_event(
+        &self,
+        user_id: Option<Uuid>,
+        action: &str,
+        target_type: &str,
+        target_id: Option<&str>,
+        details: Option<Value>,
+        ip_address: Option<&str>,
+    ) -> anyhow::Result<i64> {
+        match self {
+            Self::Postgres(db) => {
+                db.insert_audit_event(user_id, action, target_type, target_id, details, ip_address)
+                    .await
+            }
+            Self::Sqlite(db) => {
+                db.insert_audit_event(user_id, action, target_type, target_id, details, ip_address)
+                    .await
+            }
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => {
+                db.insert_audit_event(user_id, action, target_type, target_id, details, ip_address)
+                    .await
+            }
+        }
+    }
+    async fn list_audit_events(&self, limit: i64, offset: i64) -> anyhow::Result<Vec<AuditEvent>> {
+        match self {
+            Self::Postgres(db) => db.list_audit_events(limit, offset).await,
+            Self::Sqlite(db) => db.list_audit_events(limit, offset).await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.list_audit_events(limit, offset).await,
+        }
+    }
+    async fn get_metrics_data(&self) -> anyhow::Result<MetricsData> {
+        match self {
+            Self::Postgres(db) => db.get_metrics_data().await,
+            Self::Sqlite(db) => db.get_metrics_data().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.get_metrics_data().await,
         }
     }
 

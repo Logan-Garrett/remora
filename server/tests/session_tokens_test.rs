@@ -95,9 +95,10 @@ async fn session_token_cannot_manage_sessions() {
         .send()
         .await
         .unwrap();
+    // Session tokens are valid but lack permission — expect 403 Forbidden
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "session token should not delete sessions"
     );
 }

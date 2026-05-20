@@ -39,9 +39,10 @@ test.describe("Login flow", () => {
   });
 
   test("missing fields show validation error", async ({ page }) => {
+    // Server URL is validated first now (before token/name)
     await page.locator("button.primary").click();
     await expect(page.locator(".login-error")).toHaveText(
-      "All fields are required"
+      "Server URL is required"
     );
   });
 

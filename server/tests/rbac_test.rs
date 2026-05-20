@@ -54,25 +54,24 @@ async fn jwt_user_can_access_me() {
 
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
-async fn jwt_user_cannot_create_sessions_admin_can() {
+async fn jwt_member_and_admin_can_create_sessions() {
     let server = common::TestServer::start().await;
     let client = reqwest::Client::new();
 
     let (jwt, _) =
         register_and_login(&server.base_url(), "rbac-sess@example.com", "SessUser").await;
 
-    // JWT user (member role) tries to create a session -- currently only admin token can
+    // JWT user (member role) can create sessions
     let resp = client
         .post(format!("{}/sessions", server.base_url()))
         .header("Authorization", format!("Bearer {jwt}"))
-        .json(&serde_json::json!({ "description": "member attempt" }))
+        .json(&serde_json::json!({ "description": "member creates" }))
         .send()
         .await
         .unwrap();
-    // The existing create_session endpoint requires admin token
-    assert_eq!(resp.status(), 401);
+    assert_eq!(resp.status(), 201);
 
-    // Admin token works
+    // Admin token also works
     let resp = client
         .post(format!("{}/sessions", server.base_url()))
         .header("Authorization", format!("Bearer {TEST_TOKEN}"))

@@ -82,7 +82,8 @@ export function renderSessions(
   container: HTMLElement,
   config: ConnectionConfig,
   onJoin: (session: SessionInfo) => void,
-  onDisconnect: () => void
+  onDisconnect: () => void,
+  onAdmin?: () => void
 ): void {
   clear(container);
 
@@ -91,21 +92,24 @@ export function renderSessions(
     showCreateModal(config, onJoin);
   });
 
+  const actionsDiv = el("div", { class: "header-actions" }, newBtn);
+
+  if (config.isAdmin && onAdmin) {
+    const adminBtn = el("button", { class: "admin-btn" }, "Admin");
+    adminBtn.addEventListener("click", onAdmin);
+    actionsDiv.appendChild(adminBtn);
+  }
+
+  const disconnectBtn = el("button", {}, "Disconnect");
+  disconnectBtn.addEventListener("click", onDisconnect);
+  actionsDiv.appendChild(disconnectBtn);
+
   const header = el(
     "div",
     { class: "header" },
     el("span", { class: "header-title" }, "Remora"),
     el("span", { class: "header-status" }, `Connected as ${config.name}`),
-    el(
-      "div",
-      { class: "header-actions" },
-      newBtn,
-      (() => {
-        const btn = el("button", {}, "Disconnect");
-        btn.addEventListener("click", onDisconnect);
-        return btn;
-      })()
-    )
+    actionsDiv
   );
 
   const listContainer = el("div", { class: "sessions-list" });

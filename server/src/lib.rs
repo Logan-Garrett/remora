@@ -4,6 +4,7 @@
 //! exposes the internal modules so that `tests/` integration tests
 //! can build routers, create `AppState`, etc.
 
+pub mod admin;
 pub mod auth;
 pub mod claude;
 pub mod commands;
@@ -105,8 +106,10 @@ async fn create_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    // Session tokens cannot create new sessions
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => return (StatusCode::UNAUTHORIZED, "bad token").into_response(),
     }
 
     // Enforce max sessions limit
@@ -217,8 +220,9 @@ async fn list_sessions(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => return (StatusCode::UNAUTHORIZED, "bad token").into_response(),
     }
 
     let result = state.db.list_sessions().await;
@@ -253,8 +257,31 @@ async fn delete_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    let token_kind = check_any_token(&state, token).await;
+
+    // Only admin token, admin-role users, or the session owner may delete
+    let allowed = match &token_kind {
+        TokenKind::Admin => true,
+        TokenKind::UserJwt(user) | TokenKind::ApiKey(user) => {
+            if auth::role_level(&user.role) >= auth::role_level("admin") {
+                true
+            } else {
+                // Check in-memory owner (display_name match)
+                state
+                    .get_session_owner(session_id)
+                    .await
+                    .map(|owner| owner == user.display_name)
+                    .unwrap_or(false)
+            }
+        }
+        _ => false,
+    };
+    if !allowed {
+        return (
+            StatusCode::FORBIDDEN,
+            "only session owner or admin can delete",
+        )
+            .into_response();
     }
 
     // Destroy sandbox if it exists
@@ -295,8 +322,9 @@ async fn reactivate_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => return (StatusCode::UNAUTHORIZED, "bad token").into_response(),
     }
 
     // Enforce max sessions limit (reactivation adds an active session)
@@ -446,8 +474,12 @@ async fn create_session_token_endpoint(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
-        return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
+    // Session tokens cannot create new tokens
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => {
+            return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
+        }
     }
     match state.db.session_exists(session_id).await {
         Ok(false) => return (StatusCode::NOT_FOUND, "session not found").into_response(),
@@ -1143,6 +1175,23 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
         .route("/teams/:id/sessions", get(list_team_sessions))
         // Dashboard
         .route("/dashboard", get(user_dashboard))
+        // Admin endpoints
+        .route("/admin/usage", get(admin::get_usage))
+        .route("/admin/analytics", get(admin::get_analytics))
+        .route("/admin/sessions", get(admin::list_sessions))
+        .route(
+            "/admin/sessions/:id/quota",
+            put(admin::update_session_quota),
+        )
+        .route("/admin/sessions/:id", delete(admin::force_delete_session))
+        .route(
+            "/admin/sessions/:id/expire",
+            post(admin::force_expire_session),
+        )
+        .route("/admin/users", get(admin::list_users))
+        .route("/admin/users/:id/role", put(admin::update_user_role))
+        .route("/admin/audit", get(admin::list_audit_events))
+        .route("/metrics", get(admin::metrics))
         .layer(ConcurrencyLimitLayer::new(100))
         // NOTE: Permissive CORS is a pre-existing configuration (predates auth branch).
         // Should be tightened to specific origins in production. Tracked separately.
