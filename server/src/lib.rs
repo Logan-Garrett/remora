@@ -105,7 +105,7 @@ async fn create_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
+    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
 
@@ -217,7 +217,7 @@ async fn list_sessions(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
+    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
 
@@ -253,7 +253,7 @@ async fn delete_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
+    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
 
@@ -295,7 +295,7 @@ async fn reactivate_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
+    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
 
@@ -446,7 +446,7 @@ async fn create_session_token_endpoint(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if !check_token(&state, token) {
+    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
         return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
     }
     match state.db.session_exists(session_id).await {
