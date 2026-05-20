@@ -826,6 +826,99 @@ function M.leave()
   state.prompt_win = nil
 end
 
+--- Login with email and password to get a JWT token.
+--- @param url string   Base HTTP URL of the remora server
+--- @param email string  User email
+--- @param password string  User password
+--- @param callback function|nil  Called with (token, display_name) on success
+function M.login(url, email, password, callback)
+  if not url or not email or not password then
+    vim.notify("remora: url, email, and password required", vim.log.levels.ERROR)
+    return
+  end
+  local body = vim.fn.json_encode({ email = email, password = password })
+  local stdout_chunks = {}
+  vim.fn.jobstart({
+    "curl", "-s",
+    "-X", "POST",
+    url .. "/auth/login",
+    "-H", "Content-Type: application/json",
+    "-d", body,
+  }, {
+    on_stdout = function(_, data)
+      if data then
+        for _, chunk in ipairs(data) do
+          if chunk ~= "" then table.insert(stdout_chunks, chunk) end
+        end
+      end
+    end,
+    on_exit = function(_, exit_code)
+      vim.schedule(function()
+        local resp = table.concat(stdout_chunks, "")
+        if exit_code ~= 0 or resp == "" then
+          vim.notify("remora: login failed (network error)", vim.log.levels.ERROR)
+          return
+        end
+        local ok, parsed = pcall(vim.fn.json_decode, resp)
+        if not ok or not parsed.access_token then
+          vim.notify("remora: login failed: " .. resp, vim.log.levels.ERROR)
+          return
+        end
+        state.url = url
+        state.token = parsed.access_token
+        state.name = parsed.user and parsed.user.display_name or state.name
+        vim.notify(string.format("remora: logged in as %s", state.name), vim.log.levels.INFO)
+        if callback then callback(state.token, state.name) end
+      end)
+    end,
+    stdout_buffered = false,
+  })
+end
+
+--- List teams from the server via REST (curl).
+--- @param url string   Base HTTP URL of the remora server
+--- @param token string  Auth token
+function M.list_teams(url, token)
+  if not url or not token then
+    vim.notify("remora: url and token required", vim.log.levels.ERROR)
+    return
+  end
+  local stdout_chunks = {}
+  vim.fn.jobstart({
+    "curl", "-s",
+    url .. "/teams",
+    "-H", "Authorization: Bearer " .. token,
+  }, {
+    on_stdout = function(_, data)
+      if data then
+        for _, chunk in ipairs(data) do
+          if chunk ~= "" then table.insert(stdout_chunks, chunk) end
+        end
+      end
+    end,
+    on_exit = function()
+      vim.schedule(function()
+        local body = table.concat(stdout_chunks, "")
+        if body == "" then
+          append_log("-- no teams or request failed --", "RemoraSystem")
+          return
+        end
+        local ok, teams = pcall(vim.fn.json_decode, body)
+        if not ok or type(teams) ~= "table" then
+          append_log("-- failed to parse teams response --", "RemoraError")
+          return
+        end
+        append_log("-- teams --", "RemoraSystem")
+        for _, t in ipairs(teams) do
+          append_log(string.format("  %s  %s  (%s)", t.id or "?", t.name or "", t.description or ""), nil)
+        end
+        append_log("-- end teams --", "RemoraSystem")
+      end)
+    end,
+    stdout_buffered = false,
+  })
+end
+
 --- List sessions from the server via REST (curl).
 --- @param url string   Base HTTP URL of the remora server
 --- @param token string  Auth token
@@ -1021,6 +1114,26 @@ function M.setup(opts)
     end
     M.list_sessions(url, token)
   end, { nargs = "+" })
+
+  vim.api.nvim_create_user_command("RemoraLogin", function(cmd)
+    local args = vim.split(cmd.args, " ")
+    if #args < 3 then
+      vim.notify("Usage: :RemoraLogin <url> <email> <password>", vim.log.levels.ERROR)
+      return
+    end
+    M.login(args[1], args[2], args[3])
+  end, { nargs = "+" })
+
+  vim.api.nvim_create_user_command("RemoraTeams", function(cmd)
+    local args = vim.split(cmd.args, " ")
+    local url = args[1] or state.url
+    local token = args[2] or state.token
+    if not url or not token then
+      vim.notify("Usage: :RemoraTeams [url] [token]", vim.log.levels.ERROR)
+      return
+    end
+    M.list_teams(url, token)
+  end, { nargs = "*" })
 
   vim.api.nvim_create_user_command("RemoraNew", function(cmd)
     -- Parse: :RemoraNew <url> <git-url> [<git-url>...] "<description>"
