@@ -10,14 +10,14 @@ Remora today is designed as a **single-server, single-team tool**. One server pr
 
 | What works today | What's missing |
 |---|---|
-| Multiple users sharing a session in real-time | Any concept of "users" or identity |
+| Multiple users sharing sessions in real-time | Desktop app, VS Code / JetBrains plugins |
+| User accounts, JWT, OAuth (GitHub/Google), API keys, RBAC | SAML / SSO (Okta, Azure AD), RBAC in WS commands |
 | Postgres / SQLite / MSSQL backends | MySQL / MariaDB support |
-| Web client + Neovim plugin | Desktop app, VS Code / JetBrains plugins |
-| Per-session event log, run history in DB | UI to explore or query that history |
-| Token usage tracked per session | No dashboard or alerts for quota |
-| Docker sandbox isolation | No network egress control inside sandbox |
-| Team token, user accounts, JWT, OAuth (GitHub/Google) with popup+postMessage, API keys | SAML / SSO (Okta, Azure AD) |
-| Admin dashboard: usage, analytics, session management, user roles, audit log, Prometheus metrics | Allowlist management UI, auto-promote first user to admin |
+| Web client + Neovim plugin + MCP server | Mobile app |
+| Admin dashboard (usage, analytics, sessions, users, audit log) | Allowlist management UI, auto-promote first user |
+| Teams with cross-team isolation | Multi-instance (Redis pub/sub) |
+| Docker sandbox isolation | Network egress control inside sandbox |
+| Prometheus metrics endpoint | Alert thresholds and notifications |
 
 ---
 

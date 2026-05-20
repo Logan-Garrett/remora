@@ -44,6 +44,15 @@ Use `/trust <name>` to mark participants as trusted. Their messages reach Claude
 
 ![Who with Trusted List](docs/images/web_chat_who.png)
 
+### Web Client — Admin Dashboard
+Admin users see an **Admin** button in the sessions header. The dashboard has four tabs: Overview (usage stats, run analytics), Sessions (manage quotas, expire, delete), Users (role management), and Audit Log.
+
+![Admin Dashboard](docs/images/web_admin.png)
+
+![Admin Sessions](docs/images/web_admin_sessions.png)
+
+![Admin Users](docs/images/web_admin_users.png)
+
 ### Mobile (iPhone Safari)
 The web client is fully responsive. All features including Owner Key and trust commands work on mobile.
 
