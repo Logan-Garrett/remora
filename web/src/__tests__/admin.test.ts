@@ -65,11 +65,12 @@ describe("renderAdmin", () => {
     mockFetch({ "/admin/usage": { sessions: [], global: { total_tokens_today: 0, total_sessions: 0, active_sessions: 0 } }, "/admin/analytics": { total_runs: 0, successful: 0, failed: 0, timed_out: 0, avg_duration_secs: 0, runs_by_session: [] } });
     renderAdmin(container, adminConfig, vi.fn());
     const tabs = container.querySelectorAll(".admin-tabs .tab");
-    expect(tabs.length).toBe(4);
+    expect(tabs.length).toBe(5);
     expect(tabs[0].textContent).toBe("Overview");
     expect(tabs[1].textContent).toBe("Sessions");
     expect(tabs[2].textContent).toBe("Users");
     expect(tabs[3].textContent).toBe("Audit Log");
+    expect(tabs[4].textContent).toBe("Allowlist");
   });
 
   it("defaults to Overview tab active", () => {

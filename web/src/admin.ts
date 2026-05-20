@@ -9,10 +9,11 @@ import {
   adminListUsers,
   adminUpdateUserRole,
   adminListAuditEvents,
+  adminGetSessionEvents,
 } from "./api";
 import type { ConnectionConfig } from "./types";
 
-type AdminTab = "overview" | "sessions" | "users" | "audit";
+type AdminTab = "overview" | "sessions" | "users" | "audit" | "allowlist";
 
 export function renderAdmin(
   container: HTMLElement,
@@ -41,7 +42,8 @@ export function renderAdmin(
   const sessionsTab = el("button", { class: "tab" }, "Sessions");
   const usersTab = el("button", { class: "tab" }, "Users");
   const auditTab = el("button", { class: "tab" }, "Audit Log");
-  const allTabs = [overviewTab, sessionsTab, usersTab, auditTab];
+  const allowlistTab = el("button", { class: "tab" }, "Allowlist");
+  const allTabs = [overviewTab, sessionsTab, usersTab, auditTab, allowlistTab];
   const tabBar = el("div", { class: "admin-tabs" }, ...allTabs);
 
   const content = el("div", { class: "admin-content" });
@@ -54,6 +56,7 @@ export function renderAdmin(
       sessions: sessionsTab,
       users: usersTab,
       audit: auditTab,
+      allowlist: allowlistTab,
     };
     tabMap[tab].classList.add("active");
     renderActiveTab();
@@ -63,6 +66,7 @@ export function renderAdmin(
   sessionsTab.addEventListener("click", () => switchTab("sessions"));
   usersTab.addEventListener("click", () => switchTab("users"));
   auditTab.addEventListener("click", () => switchTab("audit"));
+  allowlistTab.addEventListener("click", () => switchTab("allowlist"));
 
   // ── Tab renderers ──
 
@@ -72,6 +76,7 @@ export function renderAdmin(
     if (activeTab === "overview") renderOverviewTab();
     else if (activeTab === "sessions") renderSessionsTab();
     else if (activeTab === "users") renderUsersTab();
+    else if (activeTab === "allowlist") renderAllowlistTab();
     else renderAuditTab();
   }
 
@@ -176,7 +181,10 @@ export function renderAdmin(
           adminUpdateQuota(config, s.id, cap).then(() => renderSessionsTab()).catch((e) => alert(`Error: ${e}`));
         });
 
-        const actions = el("div", { class: "admin-actions" }, quotaBtn);
+        const eventsBtn = el("button", { class: "small" }, "Events");
+        eventsBtn.addEventListener("click", () => showSessionEvents(s.id, s.description));
+
+        const actions = el("div", { class: "admin-actions" }, quotaBtn, eventsBtn);
 
         if (s.status === "active") {
           const expireBtn = el("button", { class: "small" }, "Expire");
@@ -226,6 +234,79 @@ export function renderAdmin(
     } catch (e) {
       clear(content);
       content.appendChild(el("div", { class: "admin-error" }, `Failed to load: ${e}`));
+    }
+  }
+
+  async function showSessionEvents(sessionId: string, description: string): Promise<void> {
+    clear(content);
+    content.appendChild(el("div", { class: "admin-loading" }, "Loading events..."));
+
+    const backBtn = el("button", { class: "small" }, "Back to Sessions");
+    backBtn.addEventListener("click", () => renderSessionsTab());
+
+    try {
+      const events = await adminGetSessionEvents(config, sessionId, 50);
+      clear(content);
+
+      content.appendChild(backBtn);
+      content.appendChild(
+        el("h3", { class: "admin-section-title" },
+          `Events for: ${description || sessionId.slice(0, 8) + "..."}`
+        )
+      );
+
+      if (events.length === 0) {
+        content.appendChild(
+          el("div", { class: "admin-empty" },
+            "No events found. The session events endpoint may not be available on this server."
+          )
+        );
+        return;
+      }
+
+      const rows = events.map((evt) => {
+        const kind = String(evt.kind || "-");
+        const author = String(evt.author || "-");
+        const timestamp = evt.timestamp ? new Date(String(evt.timestamp)).toLocaleString() : "-";
+        const payloadStr = evt.payload ? JSON.stringify(evt.payload) : "-";
+
+        return el(
+          "tr",
+          {},
+          el("td", {}, timestamp),
+          el("td", {}, kind),
+          el("td", {}, author),
+          el("td", { class: "audit-details" }, payloadStr)
+        );
+      });
+
+      const table = el(
+        "div",
+        { class: "admin-table-wrap" },
+        el(
+          "table",
+          { class: "admin-table" },
+          el(
+            "thead",
+            {},
+            el("tr", {},
+              el("th", {}, "Time"),
+              el("th", {}, "Kind"),
+              el("th", {}, "Author"),
+              el("th", {}, "Payload")
+            )
+          ),
+          el("tbody", {}, ...rows)
+        )
+      );
+
+      content.appendChild(table);
+    } catch (e) {
+      clear(content);
+      content.appendChild(backBtn);
+      content.appendChild(
+        el("div", { class: "admin-error" }, `Failed to load events: ${e}`)
+      );
     }
   }
 
@@ -286,6 +367,65 @@ export function renderAdmin(
       clear(content);
       content.appendChild(el("div", { class: "admin-error" }, `Failed to load: ${e}`));
     }
+  }
+
+  function renderAllowlistTab(): void {
+    clear(content);
+
+    content.appendChild(el("h3", { class: "admin-section-title" }, "Domain Allowlist"));
+    content.appendChild(
+      el(
+        "div",
+        { class: "admin-section" },
+        "The domain allowlist controls which external URLs participants can fetch via the /fetch command. " +
+        "Allowlist management is done through WebSocket commands within a session."
+      )
+    );
+
+    const commandsTable = el(
+      "div",
+      { class: "admin-table-wrap" },
+      el(
+        "table",
+        { class: "admin-table" },
+        el(
+          "thead",
+          {},
+          el("tr", {}, el("th", {}, "Command"), el("th", {}, "Description"))
+        ),
+        el(
+          "tbody",
+          {},
+          el("tr", {},
+            el("td", {}, "/allowlist"),
+            el("td", {}, "View the current allowlist for the session")
+          ),
+          el("tr", {},
+            el("td", {}, "/allowlist_add <domain>"),
+            el("td", {}, "Add a domain to the allowlist (e.g., /allowlist_add github.com)")
+          ),
+          el("tr", {},
+            el("td", {}, "/allowlist_remove <domain>"),
+            el("td", {}, "Remove a domain from the allowlist")
+          ),
+          el("tr", {},
+            el("td", {}, "/approve <domain> true|false"),
+            el("td", {}, "Approve or reject a pending domain request")
+          )
+        )
+      )
+    );
+
+    content.appendChild(commandsTable);
+
+    content.appendChild(
+      el(
+        "div",
+        { class: "allowlist-note" },
+        "To manage the allowlist, join a session and use these commands in the chat. " +
+        "Each session has its own allowlist. Only the session owner can modify it."
+      )
+    );
   }
 
   async function renderAuditTab(): Promise<void> {

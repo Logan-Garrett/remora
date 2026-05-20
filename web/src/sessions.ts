@@ -1,6 +1,13 @@
 import { el, clear } from "./dom";
-import { listSessions, createSession, deleteSession, reactivateSession, storeOwnerKey } from "./api";
-import type { ConnectionConfig, SessionInfo } from "./types";
+import {
+  listSessions,
+  createSession,
+  deleteSession,
+  reactivateSession,
+  storeOwnerKey,
+  getUserDashboard,
+} from "./api";
+import type { ConnectionConfig, SessionInfo, DashboardSession } from "./types";
 
 function showCreateModal(
   config: ConnectionConfig,
@@ -78,12 +85,105 @@ function showCreateModal(
   reposInput.focus();
 }
 
+/** Render a session card from either SessionInfo or DashboardSession data. */
+function renderSessionCard(
+  session: { id: string; description: string; created_at: string; status: string; team_name?: string | null },
+  onJoin: (session: SessionInfo) => void,
+  onDelete: () => void,
+  config: ConnectionConfig
+): HTMLElement {
+  const isExpired = session.status === "expired";
+
+  const descChildren: (HTMLElement | string)[] = [
+    session.description || "(no description)",
+  ];
+  if (isExpired) {
+    descChildren.push(
+      el("span", { class: "session-badge expired" }, "expired")
+    );
+  }
+  if (session.team_name) {
+    descChildren.push(
+      el("span", { class: "session-badge team" }, session.team_name)
+    );
+  }
+
+  const card = el(
+    "div",
+    { class: isExpired ? "session-card session-expired" : "session-card" },
+    el(
+      "div",
+      {},
+      el(
+        "div",
+        { class: "session-desc" },
+        ...descChildren
+      ),
+      el(
+        "div",
+        { class: "session-meta" },
+        `ID: ${session.id.slice(0, 8)}... | Created: ${new Date(session.created_at).toLocaleString()}`
+      )
+    ),
+    (() => {
+      const actions = el("div", { class: "session-actions" });
+      if (isExpired) {
+        const resumeBtn = el("button", { class: "primary" }, "Resume");
+        resumeBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          try {
+            await reactivateSession(config, session.id);
+            const sessionInfo: SessionInfo = {
+              id: session.id,
+              description: session.description,
+              created_at: session.created_at,
+              status: "active",
+            };
+            onJoin(sessionInfo);
+          } catch (err) {
+            alert(`Resume failed: ${err}`);
+          }
+        });
+        actions.appendChild(resumeBtn);
+      }
+      const delBtn = el("button", { class: "danger" }, "Delete");
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm("Delete this session?")) return;
+        try {
+          await deleteSession(config, session.id);
+          onDelete();
+        } catch (err) {
+          alert(`Delete failed: ${err}`);
+        }
+      });
+      actions.appendChild(delBtn);
+      return actions;
+    })()
+  );
+
+  if (!isExpired) {
+    card.addEventListener("click", () => {
+      const sessionInfo: SessionInfo = {
+        id: session.id,
+        description: session.description,
+        created_at: session.created_at,
+        status: session.status,
+      };
+      onJoin(sessionInfo);
+    });
+  }
+
+  return card;
+}
+
 export function renderSessions(
   container: HTMLElement,
   config: ConnectionConfig,
   onJoin: (session: SessionInfo) => void,
   onDisconnect: () => void,
-  onAdmin?: () => void
+  onAdmin?: () => void,
+  onTeams?: () => void
 ): void {
   clear(container);
 
@@ -93,6 +193,13 @@ export function renderSessions(
   });
 
   const actionsDiv = el("div", { class: "header-actions" }, newBtn);
+
+  // Teams button — visible to all authenticated users
+  if (onTeams) {
+    const teamsBtn = el("button", { class: "teams-btn" }, "Teams");
+    teamsBtn.addEventListener("click", onTeams);
+    actionsDiv.appendChild(teamsBtn);
+  }
 
   if (config.isAdmin && onAdmin) {
     const adminBtn = el("button", { class: "admin-btn" }, "Admin");
@@ -125,6 +232,22 @@ export function renderSessions(
 
   async function loadSessions(): Promise<void> {
     clear(listContainer);
+
+    // For JWT users (non-admin-token), try the dashboard endpoint first
+    // which shows only their sessions with team annotations.
+    // Team token users get all sessions.
+    if (!config.isAdmin) {
+      try {
+        const dashboard = await getUserDashboard(config);
+        renderDashboardSessions(dashboard.sessions);
+        return;
+      } catch {
+        // Dashboard endpoint might fail for team-token users or older servers;
+        // fall back to regular session list
+      }
+    }
+
+    // Fallback: regular session list (all sessions)
     let sessions: SessionInfo[];
     try {
       sessions = await listSessions(config);
@@ -147,70 +270,28 @@ export function renderSessions(
     }
 
     for (const session of sessions) {
-      const isExpired = session.status === "expired";
+      listContainer.appendChild(
+        renderSessionCard(session, onJoin, loadSessions, config)
+      );
+    }
+  }
 
-      const descChildren: (HTMLElement | string)[] = [
-        session.description || "(no description)",
-      ];
-      if (isExpired) {
-        descChildren.push(
-          el("span", { class: "session-badge expired" }, "expired")
-        );
-      }
-
-      const card = el(
-        "div",
-        { class: isExpired ? "session-card session-expired" : "session-card" },
+  function renderDashboardSessions(sessions: DashboardSession[]): void {
+    if (sessions.length === 0) {
+      listContainer.appendChild(
         el(
           "div",
-          {},
-          el(
-            "div",
-            { class: "session-desc" },
-            ...descChildren
-          ),
-          el(
-            "div",
-            { class: "session-meta" },
-            `ID: ${session.id.slice(0, 8)}... | Created: ${new Date(session.created_at).toLocaleString()}`
-          )
-        ),
-        (() => {
-          const actions = el("div", { class: "session-actions" });
-          if (isExpired) {
-            const resumeBtn = el("button", { class: "primary" }, "Resume");
-            resumeBtn.addEventListener("click", async (e) => {
-              e.stopPropagation();
-              try {
-                await reactivateSession(config, session.id);
-                session.status = "active";
-                onJoin(session);
-              } catch (err) {
-                alert(`Resume failed: ${err}`);
-              }
-            });
-            actions.appendChild(resumeBtn);
-          }
-          const delBtn = el("button", { class: "danger" }, "Delete");
-          delBtn.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            if (!confirm("Delete this session?")) return;
-            try {
-              await deleteSession(config, session.id);
-              loadSessions();
-            } catch (err) {
-              alert(`Delete failed: ${err}`);
-            }
-          });
-          actions.appendChild(delBtn);
-          return actions;
-        })()
+          { class: "sessions-empty" },
+          "No sessions yet. Click \"New Session\" to create one, or join a team."
+        )
       );
+      return;
+    }
 
-      if (!isExpired) {
-        card.addEventListener("click", () => onJoin(session));
-      }
-      listContainer.appendChild(card);
+    for (const session of sessions) {
+      listContainer.appendChild(
+        renderSessionCard(session, onJoin, loadSessions, config)
+      );
     }
   }
 

@@ -866,7 +866,7 @@ async fn handle_trust(
     state: &AppState,
     session_id: Uuid,
     author: &str,
-    role: &str,
+    _role: &str,
     target: &str,
 ) -> anyhow::Result<()> {
     // Only the session owner can trust participants
