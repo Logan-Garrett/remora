@@ -106,8 +106,10 @@ async fn create_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    // Session tokens cannot create new sessions
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => return (StatusCode::UNAUTHORIZED, "bad token").into_response(),
     }
 
     // Enforce max sessions limit
@@ -218,8 +220,9 @@ async fn list_sessions(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => return (StatusCode::UNAUTHORIZED, "bad token").into_response(),
     }
 
     let result = state.db.list_sessions().await;
@@ -319,8 +322,9 @@ async fn reactivate_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => return (StatusCode::UNAUTHORIZED, "bad token").into_response(),
     }
 
     // Enforce max sessions limit (reactivation adds an active session)
@@ -470,8 +474,12 @@ async fn create_session_token_endpoint(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
-        return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
+    // Session tokens cannot create new tokens
+    match check_any_token(&state, token).await {
+        TokenKind::Admin | TokenKind::UserJwt(_) | TokenKind::ApiKey(_) => {}
+        _ => {
+            return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
+        }
     }
     match state.db.session_exists(session_id).await {
         Ok(false) => return (StatusCode::NOT_FOUND, "session not found").into_response(),
