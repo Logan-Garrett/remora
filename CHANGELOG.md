@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 
 ---
 
-## [Unreleased]
+## [0.11.0] - 2026-05-20
 
 ### Added
 - **OAuth web UI** -- login page now has GitHub and Google OAuth buttons. Clicking a button opens a popup window; after authorization the server returns an HTML page that calls `window.opener.postMessage` with the JWT, validates origin, and closes the popup. No redirect or page reload required.
