@@ -253,8 +253,31 @@ async fn delete_session(
     let Some(token) = extract_token(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing token").into_response();
     };
-    if matches!(check_any_token(&state, token).await, TokenKind::Invalid) {
-        return (StatusCode::UNAUTHORIZED, "bad token").into_response();
+    let token_kind = check_any_token(&state, token).await;
+
+    // Only admin token, admin-role users, or the session owner may delete
+    let allowed = match &token_kind {
+        TokenKind::Admin => true,
+        TokenKind::UserJwt(user) | TokenKind::ApiKey(user) => {
+            if auth::role_level(&user.role) >= auth::role_level("admin") {
+                true
+            } else {
+                // Check in-memory owner (display_name match)
+                state
+                    .get_session_owner(session_id)
+                    .await
+                    .map(|owner| owner == user.display_name)
+                    .unwrap_or(false)
+            }
+        }
+        _ => false,
+    };
+    if !allowed {
+        return (
+            StatusCode::FORBIDDEN,
+            "only session owner or admin can delete",
+        )
+            .into_response();
     }
 
     // Destroy sandbox if it exists
