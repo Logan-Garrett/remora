@@ -102,29 +102,50 @@ pub fn generate_random_token() -> String {
 type HmacSha256 = Hmac<Sha256>;
 
 /// Generate a self-validating OAuth state parameter.
-/// Format: `<random_uuid>.<hmac_hex>` where the HMAC is computed over the UUID
-/// using the JWT secret. No server-side storage required.
-pub fn generate_oauth_state(secret: &str) -> String {
+///
+/// Without origin: `<uuid>.<hmac_hex>` (backward compatible).
+/// With origin:    `<uuid>|<base64url_origin>.<hmac_hex>`.
+///
+/// The HMAC covers the full payload before the final `.`.
+pub fn generate_oauth_state(secret: &str, origin: Option<&str>) -> String {
     let nonce = Uuid::new_v4().to_string();
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(nonce.as_bytes());
-    let sig = hex::encode(mac.finalize().into_bytes());
-    format!("{nonce}.{sig}")
-}
-
-/// Validate an OAuth state parameter. Returns true if the HMAC matches.
-pub fn validate_oauth_state(state: &str, secret: &str) -> bool {
-    let Some((nonce, sig_hex)) = state.split_once('.') else {
-        return false;
+    let payload = match origin {
+        Some(o) => {
+            use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+            use base64::Engine;
+            let encoded = URL_SAFE_NO_PAD.encode(o.as_bytes());
+            format!("{nonce}|{encoded}")
+        }
+        None => nonce,
     };
     let mut mac =
         HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(nonce.as_bytes());
+    mac.update(payload.as_bytes());
+    let sig = hex::encode(mac.finalize().into_bytes());
+    format!("{payload}.{sig}")
+}
+
+/// Validate an OAuth state parameter. Returns `None` if invalid, or
+/// `Some(optional_origin)` on success.
+pub fn validate_oauth_state(state: &str, secret: &str) -> Option<Option<String>> {
+    let (payload, sig_hex) = state.rsplit_once('.')?;
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(payload.as_bytes());
     let expected = hex::encode(mac.finalize().into_bytes());
-    // Constant-time comparison
     use subtle::ConstantTimeEq;
-    sig_hex.as_bytes().ct_eq(expected.as_bytes()).into()
+    if !bool::from(sig_hex.as_bytes().ct_eq(expected.as_bytes())) {
+        return None;
+    }
+    // Extract origin if present
+    let origin = if let Some((_nonce, b64)) = payload.split_once('|') {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        String::from_utf8(URL_SAFE_NO_PAD.decode(b64).ok()?).ok()
+    } else {
+        None
+    };
+    Some(origin)
 }
 
 // ---------------------------------------------------------------------------
@@ -555,7 +576,16 @@ struct GoogleUserInfo {
     name: Option<String>,
 }
 
-pub async fn oauth_github_redirect(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+#[derive(Deserialize)]
+pub struct OAuthRedirectParams {
+    /// The web client origin, threaded through the state for postMessage callback.
+    pub origin: Option<String>,
+}
+
+pub async fn oauth_github_redirect(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<OAuthRedirectParams>,
+) -> impl IntoResponse {
     let (client_id, _) = match (
         &state.config.oauth_github_client_id,
         &state.config.oauth_github_client_secret,
@@ -566,7 +596,7 @@ pub async fn oauth_github_redirect(State(state): State<Arc<AppState>>) -> impl I
         }
     };
 
-    let oauth_state = generate_oauth_state(&state.config.jwt_secret);
+    let oauth_state = generate_oauth_state(&state.config.jwt_secret, params.origin.as_deref());
     let redirect_base = &state.config.oauth_redirect_base_url;
     let raw_redirect = format!("{redirect_base}/auth/oauth/github/callback");
     let redirect_uri = urlencoding::encode(&raw_redirect);
@@ -592,15 +622,17 @@ pub async fn oauth_github_callback(
         }
     };
 
-    // Validate CSRF state parameter (after config check so misconfigured
-    // servers return 501 rather than a confusing 400)
-    if !validate_oauth_state(&query.state, &state.config.jwt_secret) {
-        return (
-            StatusCode::BAD_REQUEST,
-            "invalid or missing OAuth state parameter",
-        )
-            .into_response();
-    }
+    // Validate CSRF state parameter and extract optional web client origin
+    let web_origin = match validate_oauth_state(&query.state, &state.config.jwt_secret) {
+        Some(origin) => origin,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "invalid or missing OAuth state parameter",
+            )
+                .into_response();
+        }
+    };
 
     // Exchange code for access token
     let http = reqwest::Client::new();
@@ -668,10 +700,21 @@ pub async fn oauth_github_callback(
         .unwrap_or_else(|| format!("{}@github.noemail", gh_user.login));
     let display_name = gh_user.login;
 
-    oauth_complete_flow(state, "github", &provider_user_id, &email, &display_name).await
+    oauth_complete_flow(
+        state,
+        "github",
+        &provider_user_id,
+        &email,
+        &display_name,
+        web_origin,
+    )
+    .await
 }
 
-pub async fn oauth_google_redirect(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn oauth_google_redirect(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<OAuthRedirectParams>,
+) -> impl IntoResponse {
     let (client_id, _) = match (
         &state.config.oauth_google_client_id,
         &state.config.oauth_google_client_secret,
@@ -682,7 +725,7 @@ pub async fn oauth_google_redirect(State(state): State<Arc<AppState>>) -> impl I
         }
     };
 
-    let oauth_state = generate_oauth_state(&state.config.jwt_secret);
+    let oauth_state = generate_oauth_state(&state.config.jwt_secret, params.origin.as_deref());
     let redirect_base = &state.config.oauth_redirect_base_url;
     let raw_redirect = format!("{redirect_base}/auth/oauth/google/callback");
     let redirect_uri = urlencoding::encode(&raw_redirect);
@@ -710,15 +753,17 @@ pub async fn oauth_google_callback(
         }
     };
 
-    // Validate CSRF state parameter (after config check so misconfigured
-    // servers return 501 rather than a confusing 400)
-    if !validate_oauth_state(&query.state, &state.config.jwt_secret) {
-        return (
-            StatusCode::BAD_REQUEST,
-            "invalid or missing OAuth state parameter",
-        )
-            .into_response();
-    }
+    // Validate CSRF state parameter and extract optional web client origin
+    let web_origin = match validate_oauth_state(&query.state, &state.config.jwt_secret) {
+        Some(origin) => origin,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "invalid or missing OAuth state parameter",
+            )
+                .into_response();
+        }
+    };
 
     let redirect_base = &state.config.oauth_redirect_base_url;
     let callback_uri = format!("{redirect_base}/auth/oauth/google/callback");
@@ -786,7 +831,15 @@ pub async fn oauth_google_callback(
         .unwrap_or_else(|| format!("{}@google.noemail", g_user.sub));
     let display_name = g_user.name.unwrap_or_else(|| g_user.sub.clone());
 
-    oauth_complete_flow(state, "google", &g_user.sub, &email, &display_name).await
+    oauth_complete_flow(
+        state,
+        "google",
+        &g_user.sub,
+        &email,
+        &display_name,
+        web_origin,
+    )
+    .await
 }
 
 async fn oauth_complete_flow(
@@ -795,6 +848,7 @@ async fn oauth_complete_flow(
     provider_user_id: &str,
     email: &str,
     display_name: &str,
+    web_origin: Option<String>,
 ) -> axum::response::Response {
     // Check if user already linked via OAuth
     let user = match state.db.get_user_by_oauth(provider, provider_user_id).await {
@@ -883,10 +937,106 @@ async fn oauth_complete_flow(
         return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
     }
 
-    Json(AuthResponse {
+    let auth = AuthResponse {
         access_token,
         refresh_token: raw_refresh,
         user,
-    })
-    .into_response()
+    };
+
+    // When a web_origin is present the callback was triggered from a browser
+    // popup.  Return an HTML page that posts the auth data back to the opener
+    // via postMessage (targeted to the exact origin for security) then closes.
+    if let Some(origin) = web_origin {
+        let auth_json = serde_json::to_string(&auth).unwrap_or_default();
+        let origin_json = serde_json::to_string(&origin).unwrap_or_default();
+        let html = format!(
+            r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Remora</title></head>
+<body><p>Logging in&hellip;</p>
+<script>
+(function(){{
+var d={auth_json};d.type="remora-oauth-success";
+window.opener.postMessage(d,{origin_json});
+window.close();
+}})();
+</script></body></html>"#
+        );
+        return (
+            StatusCode::OK,
+            [("content-type", "text/html; charset=utf-8")],
+            html,
+        )
+            .into_response();
+    }
+
+    Json(auth).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SECRET: &str = "test-secret-key";
+
+    #[test]
+    fn oauth_state_roundtrip_without_origin() {
+        let state = generate_oauth_state(SECRET, None);
+        let result = validate_oauth_state(&state, SECRET);
+        assert_eq!(result, Some(None));
+    }
+
+    #[test]
+    fn oauth_state_roundtrip_with_origin() {
+        let origin = "https://example.com:3000";
+        let state = generate_oauth_state(SECRET, Some(origin));
+        let result = validate_oauth_state(&state, SECRET);
+        assert_eq!(result, Some(Some(origin.to_string())));
+    }
+
+    #[test]
+    fn oauth_state_rejects_tampered_hmac() {
+        let state = generate_oauth_state(SECRET, None);
+        let tampered = format!("{state}a"); // append to HMAC
+        assert_eq!(validate_oauth_state(&tampered, SECRET), None);
+    }
+
+    #[test]
+    fn oauth_state_rejects_wrong_secret() {
+        let state = generate_oauth_state(SECRET, Some("https://legit.com"));
+        assert_eq!(validate_oauth_state(&state, "wrong-secret"), None);
+    }
+
+    #[test]
+    fn oauth_state_rejects_tampered_origin() {
+        let state = generate_oauth_state(SECRET, Some("https://legit.com"));
+        // Tamper with the base64 origin by flipping a character after the '|'
+        let pipe_pos = state.find('|').expect("state must contain pipe");
+        let dot_pos = state.rfind('.').expect("state must contain dot");
+        let mut chars: Vec<char> = state.chars().collect();
+        // Flip a char in the base64 segment
+        let target = pipe_pos + 1;
+        if target < dot_pos {
+            chars[target] = if chars[target] == 'A' { 'B' } else { 'A' };
+        }
+        let tampered: String = chars.into_iter().collect();
+        assert_eq!(validate_oauth_state(&tampered, SECRET), None);
+    }
+
+    #[test]
+    fn oauth_state_rejects_empty_string() {
+        assert_eq!(validate_oauth_state("", SECRET), None);
+    }
+
+    #[test]
+    fn oauth_state_rejects_no_dot() {
+        assert_eq!(validate_oauth_state("just-a-nonce", SECRET), None);
+    }
+
+    #[test]
+    fn oauth_state_origin_with_special_chars() {
+        let origin = "http://localhost:3000/#/callback?foo=bar&baz=qux";
+        let state = generate_oauth_state(SECRET, Some(origin));
+        let result = validate_oauth_state(&state, SECRET);
+        assert_eq!(result, Some(Some(origin.to_string())));
+    }
 }

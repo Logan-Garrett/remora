@@ -182,6 +182,94 @@ input::placeholder, textarea::placeholder {
   text-align: center;
 }
 
+/* -- Login tabs -- */
+
+.login-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+
+.login-tabs .tab {
+  flex: 1;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.login-tabs .tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.login-tabs .tab.active {
+  background: var(--bg-surface);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.login-form-area {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* -- Login divider -- */
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* -- OAuth buttons -- */
+
+.oauth-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.oauth-btn {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.oauth-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+.oauth-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* -- Sessions view -- */
 
 .sessions-view {

@@ -176,3 +176,17 @@ export interface ConnectionConfig {
   token: string;
   name: string;
 }
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  refresh_token: string;
+  user: AuthUser;
+}

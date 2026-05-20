@@ -1,4 +1,4 @@
-import type { SessionInfo, ConnectionConfig } from "./types";
+import type { SessionInfo, ConnectionConfig, AuthResponse } from "./types";
 
 export async function fetchHealth(baseUrl: string): Promise<boolean> {
   try {
@@ -80,6 +80,40 @@ export function storeOwnerKey(sessionId: string, ownerKey: string): void {
 /** Retrieve a stored owner_key for a session, if any. */
 export function getOwnerKey(sessionId: string): string | null {
   return sessionStorage.getItem(`${OWNER_KEY_PREFIX}${sessionId}`);
+}
+
+export async function authRegister(
+  baseUrl: string,
+  email: string,
+  displayName: string,
+  password: string
+): Promise<void> {
+  const resp = await fetch(`${baseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, display_name: displayName, password }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || `Registration failed (${resp.status})`);
+  }
+}
+
+export async function authLogin(
+  baseUrl: string,
+  email: string,
+  password: string
+): Promise<AuthResponse> {
+  const resp = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || `Login failed (${resp.status})`);
+  }
+  return resp.json();
 }
 
 export function buildWsUrl(config: ConnectionConfig, sessionId: string): string {
