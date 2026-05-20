@@ -255,6 +255,37 @@ stateDiagram-v2
 
 The web client stores `{ url, token, name }` in `sessionStorage` after a successful login. Refreshing the page skips the login screen. Clicking **Disconnect** clears it and returns to login.
 
+### Login Page Auth Modes
+
+The login page presents three tabs and an OAuth section:
+
+- **Token tab** -- shared team token + display name (the original auth mode; used by Neovim plugin and CI)
+- **Login tab** -- email + password; calls `POST /auth/login`, stores the returned JWT as the token
+- **Register tab** -- creates an account via `POST /auth/register`, then auto-logs in
+- **OAuth buttons** (GitHub, Google) -- open a popup via `window.open()`, then listen for a `message` event
+
+### OAuth Popup Flow
+
+```mermaid
+sequenceDiagram
+    participant WC as Web Client
+    participant PO as OAuth Popup
+    participant SRV as Remora Server
+    participant GH as GitHub / Google
+
+    WC  ->> PO:  window.open(/auth/oauth/github?origin=<web-origin>)
+    PO  ->> SRV: GET /auth/oauth/github?origin=...
+    SRV ->> GH:  redirect (state = HMAC(nonce|base64(origin)))
+    GH  ->> PO:  user authorizes → redirect to callback
+    PO  ->> SRV: GET /auth/oauth/github/callback?code=...&state=...
+    SRV ->> SRV: validate HMAC, extract origin
+    SRV ->> PO:  HTML: window.opener.postMessage(jwt, origin); window.close()
+    PO  ->> WC:  MessageEvent (origin validated by browser)
+    WC  ->> WC:  store JWT, proceed to sessions
+```
+
+The server targets the `postMessage` call to the exact web client origin embedded in the signed state. The web client validates `event.origin` matches the server origin before accepting the message. Without the `?origin=` parameter the callback returns a JSON `AuthResponse` (backward compatible).
+
 ---
 
 ## Multi-Instance Deployment

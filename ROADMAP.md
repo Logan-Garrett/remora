@@ -16,7 +16,7 @@ Remora today is designed as a **single-server, single-team tool**. One server pr
 | Per-session event log, run history in DB | UI to explore or query that history |
 | Token usage tracked per session | No dashboard or alerts for quota |
 | Docker sandbox isolation | No network egress control inside sandbox |
-| Single team token auth | Per-session tokens, OAuth, SSO |
+| Team token, user accounts, JWT, OAuth (GitHub/Google), API keys | SAML / SSO (Okta, Azure AD) |
 
 ---
 
@@ -68,8 +68,8 @@ This builds on per-session invite tokens (above) and eliminates the last name-ba
 ### Auth service -- DONE
 Built-in JWT-based auth integrated into the existing DB. Short-lived access tokens (default 1h) with refresh token rotation (default 7d). Atomic token consumption prevents race conditions. All three DB backends (Postgres, SQLite, MSSQL) supported.
 
-### OAuth / SSO -- PARTIALLY DONE
-- **OAuth 2.0** -- GitHub and Google sign-in implemented with CSRF state validation
+### OAuth / SSO -- MOSTLY DONE
+- **OAuth 2.0** -- GitHub and Google sign-in implemented end-to-end: server-side handlers with CSRF state validation, and web client OAuth buttons using a popup+postMessage flow with origin validation
 - **SAML / SSO** -- not yet implemented (Okta, Azure AD, Google Workspace)
 - **API keys per user** -- DONE. `rmk_` prefixed keys with SHA-256 hashing
 

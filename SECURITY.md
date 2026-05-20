@@ -34,12 +34,20 @@ User passwords are hashed with **argon2** (the recommended memory-hard KDF). The
 
 ### OAuth
 
-GitHub and Google OAuth 2.0 are supported. The flow:
+GitHub and Google OAuth 2.0 are supported. Two flows are available depending on the calling context:
 
+**Popup flow (web client):**
+1. The web client opens the redirect endpoint in a popup window, passing `?origin=<web-client-origin>`.
+2. The server encodes the origin into the CSRF `state` parameter (UUID + HMAC signature using the JWT secret). This is self-validating, requiring no server-side storage.
+3. The callback endpoint validates the `state` signature and extracts the origin before exchanging the authorization code.
+4. On success, the server returns an HTML page that calls `window.opener.postMessage(authData, origin)` targeted to the exact origin, then closes the popup. The web client validates `event.origin` matches the server origin before accepting the message.
+
+**Non-browser flow (CLI, integrations):**
 1. The redirect endpoint generates a CSRF `state` parameter (UUID + HMAC signature using the JWT secret). This is self-validating, requiring no server-side storage.
 2. The callback endpoint validates the `state` signature before exchanging the authorization code.
-3. The OAuth redirect base URL is configurable via `REMORA_OAUTH_REDIRECT_URL` (default `http://localhost:7200`).
-4. If the OAuth provider email matches an existing account, the OAuth connection is linked to that account. Otherwise, a new account is created.
+3. On success, the server returns a JSON `AuthResponse`, or redirects to `REMORA_OAUTH_REDIRECT_URL` with the JWT as a query parameter if that env var is set.
+
+In both flows: if the OAuth provider email matches an existing account, the OAuth connection is linked to that account. Otherwise, a new account is created.
 
 ### API key hashing
 
@@ -95,7 +103,7 @@ These are documented design decisions, not bugs:
 
 - **RBAC not enforced in WebSocket commands** -- Role checks exist as helpers but are not yet integrated into the command dispatch pipeline. A viewer can currently execute any command once connected. This is tracked as a TODO in `commands.rs`.
 
-- **Permissive CORS** -- The server uses `CorsLayer::permissive()`. This is a pre-existing configuration that predates the auth system. It should be tightened to specific origins in production.
+- **Permissive CORS** -- The server uses `CorsLayer::permissive()`. This is a pre-existing configuration that predates the auth system. It should be tightened to specific origins in production. The OAuth postMessage flow uses targeted origin validation (`postMessage(data, origin)`) to mitigate this for OAuth callbacks specifically.
 
 - **`--dangerously-skip-permissions` is on by default** -- Claude runs with full permissions on the server host unless `REMORA_SKIP_PERMISSIONS=false` is set, or `REMORA_USE_SANDBOX=true` is used to isolate Claude in a Docker container per session. Only run Remora on hosts you trust, with a token you keep secret.
 

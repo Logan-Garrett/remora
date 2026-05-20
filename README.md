@@ -23,7 +23,7 @@ Multiple remoras can attach to the same host. That's the whole point.
 ## Screenshots
 
 ### Web Client — Login
-Connect from any browser. Enter your server URL, team token, and display name. User account login and OAuth are available via the API but not yet in the web UI.
+Connect from any browser. The login page has three tabs: **Token** (team token + display name), **Login** (email + password), and **Register** (create a new account). GitHub and Google OAuth buttons are always visible and open a popup-based flow.
 
 ![Web Login](docs/images/web_login.png)
 
@@ -232,7 +232,7 @@ python3 -m http.server 3000 --directory dist/
 # or: nginx, caddy, serve, etc.
 ```
 
-Open it in a browser, enter your server URL (e.g. `http://your-server:7200`), team token, and display name.
+Open it in a browser and enter your server URL (e.g. `http://your-server:7200`). Choose the **Token** tab for a shared team token, the **Login** tab for an email/password account, the **Register** tab to create a new account, or click **Continue with GitHub** / **Continue with Google** to sign in via OAuth.
 
 ### 4. MCP Server (Claude Desktop, Claude Code, Cursor)
 
@@ -331,7 +331,7 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 |---|---|---|
 | `POST` | `/sessions` | Create session `{description, repos: [url]}` -- response includes `owner_key` |
 | `GET` | `/sessions` | List sessions (includes `status`: "active" or "expired") |
-| `DELETE` | `/sessions/:id` | Delete session + cleanup |
+| `DELETE` | `/sessions/:id` | Delete session + cleanup (owner or admin only) |
 | `POST` | `/sessions/:id/reactivate` | Resume an expired session |
 | `GET` | `/sessions/:id` | WebSocket upgrade (query: `token`, `name`, optional `owner_key`) |
 
@@ -345,8 +345,6 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 
 #### Auth (User Accounts)
 
-> **Note:** These endpoints are available via the REST API. The web UI currently uses team token authentication only. User account login and OAuth buttons in the web client are planned for a future release.
-
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/auth/register` | Create a user account (email + password, argon2 hashed) |
@@ -356,25 +354,31 @@ vim.keymap.set("n", "<leader>ml", "<CMD>RemoraLeave<CR>", { desc = "Leave sessio
 | `POST` | `/auth/api-keys` | Create a per-user API key (`rmk_` prefix, SHA-256 hashed at rest) |
 | `GET` | `/auth/api-keys` | List API keys |
 | `DELETE` | `/auth/api-keys/:id` | Revoke an API key |
-| `GET` | `/auth/oauth/github` | Redirect to GitHub for OAuth login |
-| `GET` | `/auth/oauth/github/callback` | GitHub OAuth callback (exchanges code for JWT) |
-| `GET` | `/auth/oauth/google` | Redirect to Google for OAuth login |
-| `GET` | `/auth/oauth/google/callback` | Google OAuth callback (exchanges code for JWT) |
+| `GET` | `/auth/oauth/github` | Redirect to GitHub for OAuth login (accepts `?origin=` for popup flow) |
+| `GET` | `/auth/oauth/github/callback` | GitHub OAuth callback — returns JWT JSON, or HTML+postMessage when `origin` is set |
+| `GET` | `/auth/oauth/google` | Redirect to Google for OAuth login (accepts `?origin=` for popup flow) |
+| `GET` | `/auth/oauth/google/callback` | Google OAuth callback — returns JWT JSON, or HTML+postMessage when `origin` is set |
 
 #### OAuth Flow
 
-1. Client opens `GET /auth/oauth/github` (or `/google`) in a browser
-2. Server redirects to GitHub/Google with a CSRF `state` parameter (HMAC-signed, self-validating)
-3. User authorizes the app on the provider's consent screen
-4. Provider redirects back to the callback URL with an authorization code
-5. Server exchanges the code for provider tokens, creates or links the user account, and returns a JWT
-6. If `REMORA_OAUTH_REDIRECT_URL` is set, the server redirects there with the JWT as a query parameter
+**Browser popup flow (web client):**
+
+1. Web client opens `GET /auth/oauth/github?origin=<web-client-origin>` in a popup window
+2. Server encodes the origin into the HMAC-signed CSRF `state` parameter (self-validating, no server-side storage)
+3. User authorizes on the provider's consent screen
+4. Server exchanges the code, creates or links the user account, and returns an HTML page
+5. The HTML page calls `window.opener.postMessage(authData, origin)` and closes the popup
+6. Web client receives the JWT via `message` event (origin-validated), stores it, and proceeds
+
+**Non-browser flow (CLI, integrations):**
+
+Omit the `origin` query parameter. The callback returns a JSON `AuthResponse` directly (or redirects to `REMORA_OAUTH_REDIRECT_URL` with the JWT as a query parameter if that env var is set).
 
 Requires `REMORA_OAUTH_GITHUB_CLIENT_ID`/`SECRET` or `REMORA_OAUTH_GOOGLE_CLIENT_ID`/`SECRET` to be configured. OAuth is optional; the server works fine without it.
 
 #### Token Resolution
 
-All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS). The server resolves tokens in priority order:
+All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS). REST endpoints accept any of these credential types; the server resolves them in priority order:
 
 1. **Admin team token** (`REMORA_TEAM_TOKEN`) -- full server access
 2. **JWT access token** -- issued via `/auth/login` or OAuth callback
@@ -397,9 +401,9 @@ The `owner_key` returned by `POST /sessions` is a secret UUID that proves sessio
 
 Remora supports two auth modes that can be used together:
 
-**Legacy mode (team token):** A single shared `REMORA_TEAM_TOKEN` grants full server access. This is how the web UI and Neovim plugin currently authenticate. Simple to set up, appropriate for small trusted teams.
+**Legacy mode (team token):** A single shared `REMORA_TEAM_TOKEN` grants full server access. This is how the Neovim plugin authenticates by default. Simple to set up, appropriate for small trusted teams.
 
-**User accounts (API-only for now):** Email/password registration with argon2 hashing, JWT access/refresh tokens, GitHub and Google OAuth 2.0, and per-user API keys. Available via the REST API; web UI integration is planned.
+**User accounts:** Email/password registration with argon2 hashing, JWT access/refresh tokens, GitHub and Google OAuth 2.0, and per-user API keys. Supported by both the REST API and the web client login page (Token, Login, Register tabs, plus GitHub/Google OAuth buttons).
 
 ### Roles (RBAC)
 
@@ -417,7 +421,6 @@ Role enforcement applies to JWT and API key authentication. The legacy team toke
 ### Known limitations
 
 - **WebSocket token in query string**: The token is passed as a query parameter during the WebSocket upgrade (`?token=...`). This is standard practice for WebSocket auth (the `Authorization` header is not available during browser-initiated upgrades), but it means the token may appear in reverse proxy access logs. Configure your reverse proxy to strip query strings from logs, or use a short-lived token exchange if this is a concern.
-- **Web UI uses team token only**: The web client does not yet have user registration, login, or OAuth buttons. Use the REST API directly or wait for the Phase 2 web UI update.
 
 ### Trust model
 
@@ -427,7 +430,7 @@ By default, all chat messages are untrusted and wrapped in `<untrusted_content>`
 
 See [ROADMAP.md](ROADMAP.md) for the full plan. Short version:
 
-- **Web UI auth** -- user registration, login, and OAuth buttons in the web client (server-side endpoints are ready)
+- **RBAC enforcement** -- wire role checks into WebSocket command dispatch (helpers exist, not yet active)
 - **Multi-tenancy** -- team namespacing so multiple groups can share one server
 - **MySQL / MariaDB** -- fourth database backend
 - **Admin dashboard** -- surface the token usage, run analytics, and allowlists already tracked in the DB

@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Version
 ## [Unreleased]
 
 ### Added
+- **OAuth web UI** -- login page now has GitHub and Google OAuth buttons. Clicking a button opens a popup window; after authorization the server returns an HTML page that calls `window.opener.postMessage` with the JWT, validates origin, and closes the popup. No redirect or page reload required.
+- **Login page tabs** -- the web client login page now has three tabs: **Token** (shared team token + display name), **Login** (email + password), and **Register** (create account). All three modes result in a stored JWT used for subsequent API calls.
+- **OAuth popup flow** -- `GET /auth/oauth/github` and `GET /auth/oauth/google` accept an optional `?origin=<web-client-origin>` query parameter. When present, the origin is embedded in the HMAC-signed CSRF `state` and the callback returns HTML+postMessage instead of JSON. Without the parameter, behavior is unchanged (JSON response or redirect).
+- **REST endpoint auth fix** -- all REST session endpoints now accept JWT and API key tokens via `check_any_token`, not just the admin team token. Users can authenticate with their personal JWT or API key for session operations.
+- **Session delete authorization** -- `DELETE /sessions/:id` is now restricted to the session owner or an admin-role user. Non-owners receive `403 Forbidden`.
+- 8 Rust unit tests for OAuth state generation and validation (origin roundtrip, HMAC tampering, wrong secret, special characters)
+- 21 TypeScript unit tests for the login UI (tab switching, OAuth popup security, postMessage origin validation, form validation)
+
+### Added
 - **Phase 2 Multi-tenancy: Teams** -- full team management with CRUD endpoints (`POST/GET/PUT/DELETE /teams`, `/teams/:id/members`, `/teams/:id/sessions`)
 - New DB tables: `teams` (id, name, description, daily_token_cap, created_by) and `team_members` (team_id, user_id, role, joined_at)
 - Nullable `team_id` foreign key on `sessions` table with index for team-scoped session queries
