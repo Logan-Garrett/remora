@@ -273,15 +273,15 @@ sequenceDiagram
     participant SRV as Remora Server
     participant GH as GitHub / Google
 
-    WC  ->> PO:  window.open(/auth/oauth/github?origin=<web-origin>)
-    PO  ->> SRV: GET /auth/oauth/github?origin=...
-    SRV ->> GH:  redirect (state = HMAC(nonce|base64(origin)))
-    GH  ->> PO:  user authorizes → redirect to callback
-    PO  ->> SRV: GET /auth/oauth/github/callback?code=...&state=...
+    WC  ->> PO:  open popup to /auth/oauth/github
+    PO  ->> SRV: GET /auth/oauth/github with origin param
+    SRV ->> GH:  redirect with HMAC-signed state
+    GH  ->> PO:  user authorizes, redirect to callback
+    PO  ->> SRV: GET callback with code and state
     SRV ->> SRV: validate HMAC, extract origin
-    SRV ->> PO:  HTML: window.opener.postMessage(jwt, origin); window.close()
-    PO  ->> WC:  MessageEvent (origin validated by browser)
-    WC  ->> WC:  store JWT, proceed to sessions
+    SRV ->> PO:  HTML page with postMessage to origin
+    PO  ->> WC:  postMessage with JWT tokens
+    WC  ->> WC:  validate origin, store JWT, show sessions
 ```
 
 The server targets the `postMessage` call to the exact web client origin embedded in the signed state. The web client validates `event.origin` matches the server origin before accepting the message. Without the `?origin=` parameter the callback returns a JSON `AuthResponse` (backward compatible).
