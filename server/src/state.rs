@@ -1,13 +1,49 @@
 use crate::db::{Database, DatabaseBackend};
 use remora_common::{Event, ServerMsg};
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 pub type EventTx = mpsc::UnboundedSender<ServerMsg>;
+
+/// Simple in-memory rate limiter using a sliding window (per-IP, per-endpoint).
+pub struct RateLimiter {
+    requests: RwLock<HashMap<(IpAddr, String), Vec<Instant>>>,
+}
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RateLimiter {
+    pub fn new() -> Self {
+        Self {
+            requests: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Returns `true` if the request is allowed, `false` if rate limited.
+    pub async fn check(&self, ip: IpAddr, endpoint: &str, max_per_minute: usize) -> bool {
+        let now = Instant::now();
+        let cutoff = now - std::time::Duration::from_secs(60);
+        let key = (ip, endpoint.to_string());
+        let mut map = self.requests.write().await;
+        let entries = map.entry(key).or_default();
+        entries.retain(|t| *t > cutoff);
+        if entries.len() >= max_per_minute {
+            return false; // rate limited
+        }
+        entries.push(now);
+        true
+    }
+}
 
 /// Server configuration derived from environment variables.
 #[derive(Debug, Clone)]
@@ -126,6 +162,8 @@ pub struct AppState {
     pub session_owners: RwLock<HashMap<Uuid, String>>,
     /// (session_id, participant_name) -> role string for RBAC enforcement
     pub participant_roles: RwLock<HashMap<(Uuid, String), String>>,
+    /// Rate limiter for auth endpoints
+    pub rate_limiter: RateLimiter,
 }
 
 impl AppState {
@@ -138,6 +176,7 @@ impl AppState {
             participants: RwLock::new(HashMap::new()),
             session_owners: RwLock::new(HashMap::new()),
             participant_roles: RwLock::new(HashMap::new()),
+            rate_limiter: RateLimiter::new(),
         }
     }
 

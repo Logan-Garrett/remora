@@ -8,6 +8,74 @@ use crate::db::{Database, DatabaseBackend};
 use crate::state::AppState;
 use remora_common::{ClientMsg, ServerMsg};
 
+/// Maximum allowed WebSocket text frame size (64 KiB).
+const MAX_WS_FRAME_SIZE: usize = 65_536;
+
+/// Validate field lengths in a `ClientMsg` before dispatching.
+/// Returns `Ok(())` if all fields are within limits, or `Err(description)`.
+fn validate_message(msg: &ClientMsg) -> Result<(), String> {
+    match msg {
+        ClientMsg::Chat { author, text } => {
+            check_len("author", author, 64)?;
+            check_len("text", text, 10_000)?;
+        }
+        ClientMsg::Run { author }
+        | ClientMsg::RunAll { author }
+        | ClientMsg::Clear { author }
+        | ClientMsg::Diff { author }
+        | ClientMsg::RepoList { author }
+        | ClientMsg::Allowlist { author }
+        | ClientMsg::Who { author }
+        | ClientMsg::SessionInfo { author }
+        | ClientMsg::Help { author } => {
+            check_len("author", author, 64)?;
+        }
+        ClientMsg::Add { author, path } => {
+            check_len("author", author, 64)?;
+            check_len("path", path, 4096)?;
+        }
+        ClientMsg::Fetch { author, url } => {
+            check_len("author", author, 64)?;
+            check_len("url", url, 2048)?;
+        }
+        ClientMsg::RepoAdd { author, git_url } => {
+            check_len("author", author, 64)?;
+            check_len("git_url", git_url, 2048)?;
+        }
+        ClientMsg::RepoRemove { author, name } => {
+            check_len("author", author, 64)?;
+            check_len("name", name, 256)?;
+        }
+        ClientMsg::AllowlistAdd { author, domain }
+        | ClientMsg::AllowlistRemove { author, domain } => {
+            check_len("author", author, 64)?;
+            check_len("domain", domain, 253)?;
+        }
+        ClientMsg::Approve { author, domain, .. } => {
+            check_len("author", author, 64)?;
+            check_len("domain", domain, 253)?;
+        }
+        ClientMsg::Kick { author, target }
+        | ClientMsg::Trust { author, target }
+        | ClientMsg::Untrust { author, target } => {
+            check_len("author", author, 64)?;
+            check_len("target", target, 64)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_len(field: &str, value: &str, max: usize) -> Result<(), String> {
+    if value.len() > max {
+        Err(format!(
+            "{field} exceeds maximum length ({} > {max})",
+            value.len()
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 pub async fn handle_socket(
     state: Arc<AppState>,
     session_id: Uuid,
@@ -160,11 +228,41 @@ pub async fn handle_socket(
     let recv_state = state.clone();
     let recv_name = name.clone();
     let recv_role = role;
+    let recv_sub_tx = {
+        // Grab the sender so we can send validation errors directly to this client
+        let subs = state.subscribers.read().await;
+        subs.get(&session_id).and_then(|list| {
+            list.iter()
+                .find(|info| info.name == recv_name)
+                .map(|info| info.tx.clone())
+        })
+    };
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
             match msg {
                 Message::Text(text) => {
+                    // Enforce maximum frame size
+                    if text.len() > MAX_WS_FRAME_SIZE {
+                        if let Some(ref tx) = recv_sub_tx {
+                            let _ = tx.send(ServerMsg::Error {
+                                message: format!(
+                                    "message too large ({} bytes, max {MAX_WS_FRAME_SIZE})",
+                                    text.len()
+                                ),
+                            });
+                        }
+                        continue;
+                    }
+
                     if let Ok(client_msg) = serde_json::from_str::<ClientMsg>(&text) {
+                        // Validate field lengths before dispatching
+                        if let Err(err) = validate_message(&client_msg) {
+                            if let Some(ref tx) = recv_sub_tx {
+                                let _ = tx.send(ServerMsg::Error { message: err });
+                            }
+                            continue;
+                        }
+
                         commands::dispatch(
                             recv_state.clone(),
                             session_id,
