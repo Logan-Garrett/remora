@@ -74,6 +74,29 @@ The `check_any_token()` function in `lib.rs` resolves credentials in order:
 3. Session invite token (DB lookup, scoped to a single session)
 4. API key (SHA-256 hash lookup)
 
+## Admin Endpoint Authorization
+
+Admin endpoints (`/admin/*`) are handled by `server/src/admin.rs`. The `require_admin()` helper accepts any of:
+- The shared admin team token (`REMORA_TEAM_TOKEN`) via constant-time comparison
+- A JWT with `role == "admin"` issued by `/auth/login` or OAuth
+- An API key with `role == "admin"` (SHA-256 hash lookup)
+
+This means individual user accounts can be granted admin access without distributing the team token. The admin role is stored in the `users.role` column and checked at request time, not embedded permanently in long-lived tokens (refresh rotates the role claim on each access token re-issue).
+
+## Session Delete Authorization
+
+`DELETE /sessions/:id` requires the requester to be either the session owner (authenticated user whose ID matches `sessions.created_by`) or an admin-level credential. Non-owners and non-admins receive `403 Forbidden`. The admin team token always satisfies the admin check.
+
+## OAuth postMessage Security
+
+The popup-based OAuth flow uses two layers of protection to prevent cross-origin token theft:
+
+1. **HMAC-signed state with origin** -- the web client passes its own origin as `?origin=<url>` when opening the OAuth popup. The server embeds this origin into the CSRF `state` parameter (format: `nonce|base64(origin)`, HMAC-SHA256 signed with `REMORA_JWT_SECRET`). The callback validates the HMAC before extracting the origin, ensuring the origin cannot be tampered with after the redirect starts.
+
+2. **Targeted postMessage** -- the callback page calls `window.opener.postMessage(authData, origin)` using the exact origin extracted from the validated state. Browsers will not deliver the message to any other origin. The web client additionally validates `event.origin` matches the server origin before accepting the payload.
+
+Without the `?origin=` parameter, the OAuth flow returns JSON directly (backward compatible for CLI and integration use). The HMAC validation still runs to protect the CSRF check regardless of flow.
+
 ## Team Isolation
 
 Sessions can optionally belong to a team. When a session has a `team_id`, the server enforces that only team members can access it. Isolation is checked at two points:

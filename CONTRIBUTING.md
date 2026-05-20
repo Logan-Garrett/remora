@@ -53,10 +53,17 @@ cd web && npm run test:e2e
 ```
 remora/
 ├── server/          Rust — axum HTTP + WebSocket server
+│   └── src/
+│       ├── admin.rs     Admin & observability endpoints (/admin/*, /metrics)
+│       └── ...
 ├── bridge/          Rust — stdio↔WebSocket binary for the Neovim plugin
 ├── common/          Rust — shared types (Event, ClientMsg, ServerMsg)
 ├── plugin/          Lua — Neovim plugin
 ├── web/             TypeScript — Vite web client
+│   └── src/
+│       ├── admin.ts     Admin dashboard (usage, analytics, sessions, users, audit log)
+│       └── __tests__/
+│           └── admin.test.ts   Vitest unit tests for admin dashboard
 │   └── e2e/         Playwright E2E tests
 ├── mcp/             TypeScript — MCP server for AI tool integration
 ├── templates/       Prompt templates for team workflows
@@ -99,7 +106,8 @@ See [ROADMAP.md](ROADMAP.md) for the full picture. Near-term areas where PRs are
 - **Per-session tokens** — scoped invite tokens instead of one server-wide secret
 - **Token-level streaming** — stream Claude's response token-by-token instead of per-turn
 - **VS Code extension** — port the Neovim plugin to VS Code
-- **Admin dashboard** — surface the token usage and run analytics already tracked in the DB
+- **Allowlist management UI** — surface `/allowlist` controls in the admin dashboard
+- **Auto-promote first user** — automatically grant the first registered user the admin role
 
 ## Reporting Bugs
 

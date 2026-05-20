@@ -288,6 +288,45 @@ The server targets the `postMessage` call to the exact web client origin embedde
 
 ---
 
+## Admin Dashboard
+
+The admin dashboard (`web/src/admin.ts`) is a four-tab panel rendered in the web client when the authenticated user has `isAdmin == true`. The `isAdmin` flag is propagated through all login paths (token auth, email/password login, OAuth callbacks) and stored alongside the JWT in `sessionStorage`.
+
+### Tab layout
+
+| Tab | Content |
+|---|---|
+| Overview | Global daily token usage, run analytics (success/failure/timeout counts, average duration, p50/p95 run time), per-session token usage table |
+| Sessions | Full session list with inline quota editing, force-expire, and force-delete actions |
+| Users | User list with role selectors (admin / member / viewer / guest); role changes take effect immediately via `PUT /admin/users/:id/role` |
+| Audit Log | Paginated table of admin actions written by the server (quota updates, role changes, forced session operations). Supports `?limit` and `?offset` query params |
+
+### isAdmin flag flow
+
+```
+POST /auth/login  → AuthResponse { access_token, is_admin }
+POST /auth/register → auto-login → AuthResponse { access_token, is_admin }
+OAuth callback    → postMessage({ access_token, is_admin })
+Token tab         → GET /auth/me → is_admin derived from role field
+```
+
+The web client stores `isAdmin` in `sessionStorage` and shows or hides the Admin button accordingly. The `is_admin` field in `AuthResponse` is `true` when the user's `role` is `"admin"`.
+
+### Admin endpoint authorization
+
+`require_admin()` in `server/src/admin.rs` accepts:
+- The shared admin team token (`REMORA_TEAM_TOKEN`)
+- A JWT with `role == "admin"`
+- An API key with `role == "admin"`
+
+This means individual user accounts can be granted admin access without sharing the team token.
+
+### Prometheus metrics
+
+`GET /metrics` is unauthenticated (like `/health`) and returns a Prometheus text-format response with the following gauges and counters: `remora_sessions_total`, `remora_sessions_active`, `remora_websocket_connections`, `remora_tokens_used_total`, `remora_runs_total{status="success"|"failed"|"timeout"}`.
+
+---
+
 ## Multi-Instance Deployment
 
 ```mermaid

@@ -376,6 +376,23 @@ Omit the `origin` query parameter. The callback returns a JSON `AuthResponse` di
 
 Requires `REMORA_OAUTH_GITHUB_CLIENT_ID`/`SECRET` or `REMORA_OAUTH_GOOGLE_CLIENT_ID`/`SECRET` to be configured. OAuth is optional; the server works fine without it.
 
+#### Admin
+
+All admin endpoints require `Authorization: Bearer <token>` where the token resolves to an admin: either the shared `REMORA_TEAM_TOKEN`, or a JWT / API key with `role == "admin"`.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/admin/usage` | Global and per-session token usage summary |
+| `GET` | `/admin/analytics` | Run analytics (success/failure/timeout counts, average duration) |
+| `GET` | `/admin/sessions` | List all sessions across the server |
+| `PUT` | `/admin/sessions/:id/quota` | Update a session's `daily_token_cap` |
+| `DELETE` | `/admin/sessions/:id` | Force-delete a session and its workspace |
+| `POST` | `/admin/sessions/:id/expire` | Force-expire a session |
+| `GET` | `/admin/users` | List all registered users |
+| `PUT` | `/admin/users/:id/role` | Change a user's role |
+| `GET` | `/admin/audit` | Paginated audit log (`?limit=50&offset=0`) |
+| `GET` | `/metrics` | Prometheus metrics (unauthenticated) |
+
 #### Token Resolution
 
 All endpoints require `Authorization: Bearer <token>` header (or `token` query param for WS). REST endpoints accept any of these credential types; the server resolves them in priority order:
@@ -426,14 +443,31 @@ Role enforcement applies to JWT and API key authentication. The legacy team toke
 
 By default, all chat messages are untrusted and wrapped in `<untrusted_content>` tags when sent to Claude. The session owner (the first participant to join) can run `/trust <name>` to mark a participant as trusted, allowing their messages to reach Claude as plain instructions. Display names are unique per session -- duplicate names are rejected at connect time. See [SECURITY.md](SECURITY.md) for details and known limitations.
 
+## Admin Dashboard
+
+Users authenticated with a JWT or API key that has the `admin` role will see an **Admin** button in the sessions view. The admin dashboard has four tabs:
+
+- **Overview** -- global daily token usage, run analytics (success/failure/timeout rates, average duration), and a per-session usage table
+- **Sessions** -- list all sessions across the server; edit per-session daily token caps, force-expire, or force-delete
+- **Users** -- list all registered users and change their roles via a dropdown (admin / member / viewer / guest)
+- **Audit Log** -- paginated log of admin actions (quota changes, role updates, forced session operations)
+
+A Prometheus-compatible metrics endpoint is also available at `GET /metrics` (unauthenticated, like `/health`).
+
+To grant admin access to the first user, update the `role` column in the `users` table directly:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
+```
+
+Auto-promotion of the first registered user to admin is planned but not yet implemented.
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for the full plan. Short version:
 
 - **RBAC enforcement** -- wire role checks into WebSocket command dispatch (helpers exist, not yet active)
-- **Multi-tenancy** -- team namespacing so multiple groups can share one server
 - **MySQL / MariaDB** -- fourth database backend
-- **Admin dashboard** -- surface the token usage, run analytics, and allowlists already tracked in the DB
 - **Desktop app** -- native Tauri wrapper with menu-bar presence and notifications (shell exists, features in progress)
 - **VS Code / JetBrains plugins** -- bring the Neovim plugin experience to other editors
 
