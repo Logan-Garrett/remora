@@ -282,9 +282,22 @@ pub async fn register(
         }
     };
 
+    // Auto-promote the first registered user to admin
+    let role = match state.db.count_users().await {
+        Ok(0) => {
+            tracing::info!("first user registration: auto-promoting to admin");
+            "admin"
+        }
+        Ok(_) => "member",
+        Err(e) => {
+            tracing::error!("count_users: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+
     match state
         .db
-        .create_user(&body.email, &body.display_name, Some(&pw_hash), "member")
+        .create_user(&body.email, &body.display_name, Some(&pw_hash), role)
         .await
     {
         Ok(id) => {
@@ -292,7 +305,7 @@ pub async fn register(
                 id,
                 email: body.email,
                 display_name: body.display_name,
-                role: "member".to_string(),
+                role: role.to_string(),
                 created_at: Utc::now(),
             };
             (StatusCode::CREATED, Json(serde_json::json!(user))).into_response()
@@ -869,12 +882,23 @@ async fn oauth_complete_flow(
                     existing
                 }
                 Ok(None) => {
+                    // Auto-promote the first registered user to admin
+                    let role = match state.db.count_users().await {
+                        Ok(0) => {
+                            tracing::info!(
+                                "first user registration (oauth): auto-promoting to admin"
+                            );
+                            "admin"
+                        }
+                        Ok(_) => "member",
+                        Err(e) => {
+                            tracing::error!("count_users (oauth): {e}");
+                            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+                        }
+                    };
+
                     // Create new user (no password - OAuth only)
-                    match state
-                        .db
-                        .create_user(email, display_name, None, "member")
-                        .await
-                    {
+                    match state.db.create_user(email, display_name, None, role).await {
                         Ok(id) => {
                             if let Err(e) = state
                                 .db
@@ -889,7 +913,7 @@ async fn oauth_complete_flow(
                                 id,
                                 email: email.to_string(),
                                 display_name: display_name.to_string(),
-                                role: "member".to_string(),
+                                role: role.to_string(),
                                 created_at: Utc::now(),
                             }
                         }

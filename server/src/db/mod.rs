@@ -256,6 +256,8 @@ pub trait Database: Send + Sync + 'static {
     async fn get_user_by_id(&self, id: Uuid) -> anyhow::Result<Option<User>>;
     /// Returns the password_hash for login verification (separate from User to avoid leaking it).
     async fn get_password_hash(&self, email: &str) -> anyhow::Result<Option<String>>;
+    /// Count the total number of registered users. Used for auto-promoting the first user to admin.
+    async fn count_users(&self) -> anyhow::Result<i64>;
 
     // -- refresh tokens --
     async fn store_refresh_token(
@@ -991,6 +993,14 @@ impl Database for DatabaseBackend {
             Self::Sqlite(db) => db.get_password_hash(email).await,
             #[cfg(feature = "mssql")]
             Self::Mssql(db) => db.get_password_hash(email).await,
+        }
+    }
+    async fn count_users(&self) -> anyhow::Result<i64> {
+        match self {
+            Self::Postgres(db) => db.count_users().await,
+            Self::Sqlite(db) => db.count_users().await,
+            #[cfg(feature = "mssql")]
+            Self::Mssql(db) => db.count_users().await,
         }
     }
 

@@ -7,6 +7,9 @@ import type {
   AdminSessionInfo,
   AdminUser,
   AuditEvent,
+  Team,
+  TeamMember,
+  DashboardResponse,
 } from "./types";
 
 export async function fetchHealth(baseUrl: string): Promise<boolean> {
@@ -213,6 +216,167 @@ export async function adminListAuditEvents(
     { headers: adminHeaders(config) }
   );
   if (!resp.ok) throw new Error(`Audit events: ${resp.status}`);
+  return resp.json();
+}
+
+// ── Teams API ───────────────────────────────────────────────────────────────
+
+function authHeaders(config: ConnectionConfig): Record<string, string> {
+  return { Authorization: `Bearer ${config.token}` };
+}
+
+export async function listTeams(config: ConnectionConfig): Promise<Team[]> {
+  const resp = await fetch(`${config.url}/teams`, { headers: authHeaders(config) });
+  if (resp.status === 401) throw new Error("JWT or API key required");
+  if (!resp.ok) throw new Error(`List teams: ${resp.status}`);
+  return resp.json();
+}
+
+export async function createTeam(
+  config: ConnectionConfig,
+  name: string,
+  description: string
+): Promise<Team> {
+  const resp = await fetch(`${config.url}/teams`, {
+    method: "POST",
+    headers: { ...authHeaders(config), "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  });
+  if (resp.status === 401) throw new Error("JWT or API key required");
+  if (resp.status === 409) throw new Error("Team name already exists");
+  if (!resp.ok) throw new Error(`Create team: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getTeam(config: ConnectionConfig, teamId: string): Promise<Team> {
+  const resp = await fetch(`${config.url}/teams/${teamId}`, { headers: authHeaders(config) });
+  if (resp.status === 401) throw new Error("JWT or API key required");
+  if (resp.status === 403) throw new Error("Not a team member");
+  if (resp.status === 404) throw new Error("Team not found");
+  if (!resp.ok) throw new Error(`Get team: ${resp.status}`);
+  return resp.json();
+}
+
+export async function updateTeam(
+  config: ConnectionConfig,
+  teamId: string,
+  name: string,
+  description: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/teams/${teamId}`, {
+    method: "PUT",
+    headers: { ...authHeaders(config), "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  });
+  if (resp.status === 403) throw new Error("Team admin required");
+  if (resp.status === 409) throw new Error("Team name already exists");
+  if (!resp.ok) throw new Error(`Update team: ${resp.status}`);
+}
+
+export async function deleteTeam(config: ConnectionConfig, teamId: string): Promise<void> {
+  const resp = await fetch(`${config.url}/teams/${teamId}`, {
+    method: "DELETE",
+    headers: authHeaders(config),
+  });
+  if (resp.status === 403) throw new Error("Team admin required");
+  if (!resp.ok && resp.status !== 204) throw new Error(`Delete team: ${resp.status}`);
+}
+
+export async function listTeamMembers(config: ConnectionConfig, teamId: string): Promise<TeamMember[]> {
+  const resp = await fetch(`${config.url}/teams/${teamId}/members`, { headers: authHeaders(config) });
+  if (resp.status === 403) throw new Error("Not a team member");
+  if (!resp.ok) throw new Error(`List members: ${resp.status}`);
+  return resp.json();
+}
+
+export async function addTeamMember(
+  config: ConnectionConfig,
+  teamId: string,
+  userId: string,
+  role: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/teams/${teamId}/members`, {
+    method: "POST",
+    headers: { ...authHeaders(config), "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, role }),
+  });
+  if (resp.status === 403) throw new Error("Team admin required");
+  if (!resp.ok && resp.status !== 201) throw new Error(`Add member: ${resp.status}`);
+}
+
+export async function updateTeamMember(
+  config: ConnectionConfig,
+  teamId: string,
+  userId: string,
+  role: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/teams/${teamId}/members/${userId}`, {
+    method: "PUT",
+    headers: { ...authHeaders(config), "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  if (resp.status === 403) throw new Error("Team admin required");
+  if (!resp.ok) throw new Error(`Update member: ${resp.status}`);
+}
+
+export async function removeTeamMember(
+  config: ConnectionConfig,
+  teamId: string,
+  userId: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/teams/${teamId}/members/${userId}`, {
+    method: "DELETE",
+    headers: authHeaders(config),
+  });
+  if (resp.status === 403) throw new Error("Team admin required");
+  if (!resp.ok && resp.status !== 204) throw new Error(`Remove member: ${resp.status}`);
+}
+
+export async function listTeamSessions(config: ConnectionConfig, teamId: string): Promise<SessionInfo[]> {
+  const resp = await fetch(`${config.url}/teams/${teamId}/sessions`, { headers: authHeaders(config) });
+  if (resp.status === 403) throw new Error("Not a team member");
+  if (!resp.ok) throw new Error(`List team sessions: ${resp.status}`);
+  return resp.json();
+}
+
+export async function createTeamSession(
+  config: ConnectionConfig,
+  teamId: string,
+  description: string
+): Promise<SessionInfo> {
+  const resp = await fetch(`${config.url}/teams/${teamId}/sessions`, {
+    method: "POST",
+    headers: { ...authHeaders(config), "Content-Type": "application/json" },
+    body: JSON.stringify({ description }),
+  });
+  if (resp.status === 403) throw new Error("Team member or admin role required");
+  if (!resp.ok) throw new Error(`Create team session: ${resp.status}`);
+  return resp.json();
+}
+
+// ── Dashboard API ───────────────────────────────────────────────────────────
+
+export async function getUserDashboard(config: ConnectionConfig): Promise<DashboardResponse> {
+  const resp = await fetch(`${config.url}/dashboard`, { headers: authHeaders(config) });
+  if (resp.status === 401) throw new Error("JWT or API key required");
+  if (!resp.ok) throw new Error(`Dashboard: ${resp.status}`);
+  return resp.json();
+}
+
+// ── Session Events API ──────────────────────────────────────────────────────
+
+export async function adminGetSessionEvents(
+  config: ConnectionConfig,
+  sessionId: string,
+  limit = 50
+): Promise<Record<string, unknown>[]> {
+  const resp = await fetch(
+    `${config.url}/admin/sessions/${sessionId}/events?limit=${limit}`,
+    { headers: adminHeaders(config) }
+  );
+  // If the endpoint doesn't exist, return empty array gracefully
+  if (resp.status === 404) return [];
+  if (!resp.ok) throw new Error(`Session events: ${resp.status}`);
   return resp.json();
 }
 

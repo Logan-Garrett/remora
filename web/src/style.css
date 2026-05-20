@@ -947,4 +947,175 @@ button.small {
   .admin-table {
     font-size: 12px;
   }
+
+  /* Teams mobile */
+  .teams-list {
+    gap: 8px;
+  }
+
+  .team-card {
+    padding: 12px;
+  }
+
+  .team-detail-header {
+    gap: 8px;
+  }
+
+  .team-admin-actions {
+    flex-wrap: wrap;
+  }
+
+  .team-add-member-row {
+    flex-direction: column;
+  }
+
+  .team-add-member-row input,
+  .team-add-member-row select {
+    width: 100%;
+  }
+}
+
+/* -- Teams button -- */
+
+.teams-btn {
+  background: rgba(122, 162, 247, 0.15);
+  color: var(--accent);
+  border-color: rgba(122, 162, 247, 0.3);
+}
+
+.teams-btn:hover {
+  background: rgba(122, 162, 247, 0.25);
+}
+
+/* -- Teams view -- */
+
+.teams-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.team-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.team-card:hover {
+  border-color: var(--accent);
+}
+
+.team-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.team-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.team-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-card-meta {
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.team-card-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.teams-create-form {
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.teams-create-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.teams-create-form label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.teams-create-form input {
+  width: 100%;
+}
+
+/* -- Team detail -- */
+
+.team-detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.team-admin-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.team-add-member-form {
+  margin: 12px 0;
+}
+
+.team-add-member-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.team-add-member-row input {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* -- Session badge: team -- */
+
+.session-badge.team {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(122, 162, 247, 0.15);
+  color: var(--accent);
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 400;
+}
+
+/* -- Allowlist note -- */
+
+.allowlist-note {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(122, 162, 247, 0.08);
+  border: 1px solid rgba(122, 162, 247, 0.2);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
 }

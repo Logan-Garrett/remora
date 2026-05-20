@@ -1350,6 +1350,25 @@ impl Database for MssqlDb {
             .map(|s| s.to_string()))
     }
 
+    async fn count_users(&self) -> anyhow::Result<i64> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query("SELECT COUNT(*) FROM users", &[])
+            .await?
+            .into_first_result()
+            .await?;
+        let count = rows
+            .first()
+            .and_then(|r| r.try_get::<i64, _>(0).ok().flatten())
+            .or_else(|| {
+                rows.first()
+                    .and_then(|r| r.try_get::<i32, _>(0).ok().flatten())
+                    .map(|v| v as i64)
+            })
+            .unwrap_or(0);
+        Ok(count)
+    }
+
     // -- refresh tokens --
 
     async fn store_refresh_token(

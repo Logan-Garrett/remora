@@ -2,6 +2,7 @@ import { renderLogin, clearConfig } from "./login";
 import { renderSessions } from "./sessions";
 import { renderChat } from "./chat";
 import { renderAdmin } from "./admin";
+import { renderTeams } from "./teams";
 import type { ConnectionConfig, SessionInfo } from "./types";
 
 if ("serviceWorker" in navigator) {
@@ -29,7 +30,8 @@ function showSessions(config: ConnectionConfig): void {
       clearConfig();
       showLogin();
     },
-    config.isAdmin ? () => showAdmin(config) : undefined
+    config.isAdmin ? () => showAdmin(config) : undefined,
+    () => showTeams(config)
   );
 }
 
@@ -37,6 +39,19 @@ function showAdmin(config: ConnectionConfig): void {
   renderAdmin(app, config, () => {
     showSessions(config);
   });
+}
+
+function showTeams(config: ConnectionConfig): void {
+  renderTeams(
+    app,
+    config,
+    () => {
+      showSessions(config);
+    },
+    (session: SessionInfo) => {
+      showChat(config, session);
+    }
+  );
 }
 
 function showChat(config: ConnectionConfig, session: SessionInfo): void {

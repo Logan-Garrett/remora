@@ -124,6 +124,8 @@ pub struct AppState {
     pub participants: RwLock<HashMap<Uuid, HashSet<String>>>,
     /// session_id -> display name of the session owner (first participant to join)
     pub session_owners: RwLock<HashMap<Uuid, String>>,
+    /// (session_id, participant_name) -> role string for RBAC enforcement
+    pub participant_roles: RwLock<HashMap<(Uuid, String), String>>,
 }
 
 impl AppState {
@@ -135,6 +137,7 @@ impl AppState {
             subscribers: RwLock::new(HashMap::new()),
             participants: RwLock::new(HashMap::new()),
             session_owners: RwLock::new(HashMap::new()),
+            participant_roles: RwLock::new(HashMap::new()),
         }
     }
 
@@ -202,6 +205,9 @@ impl AppState {
     }
 
     pub async fn participant_leave(&self, session_id: Uuid, name: &str) {
+        // Clean up role entry
+        self.remove_participant_role(session_id, name).await;
+
         let mut parts = self.participants.write().await;
         if let Some(set) = parts.get_mut(&session_id) {
             set.remove(name);
@@ -246,6 +252,24 @@ impl AppState {
     pub async fn clear_session_owner(&self, session_id: Uuid) {
         let mut owners = self.session_owners.write().await;
         owners.remove(&session_id);
+    }
+
+    /// Store the role for a participant in a session.
+    pub async fn set_participant_role(&self, session_id: Uuid, name: &str, role: &str) {
+        let mut roles = self.participant_roles.write().await;
+        roles.insert((session_id, name.to_string()), role.to_string());
+    }
+
+    /// Get the role for a participant in a session.
+    pub async fn get_participant_role(&self, session_id: Uuid, name: &str) -> Option<String> {
+        let roles = self.participant_roles.read().await;
+        roles.get(&(session_id, name.to_string())).cloned()
+    }
+
+    /// Remove the role entry for a participant leaving a session.
+    pub async fn remove_participant_role(&self, session_id: Uuid, name: &str) {
+        let mut roles = self.participant_roles.write().await;
+        roles.remove(&(session_id, name.to_string()));
     }
 
     pub async fn get_participants(&self, session_id: Uuid) -> Vec<String> {

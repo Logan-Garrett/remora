@@ -12,6 +12,7 @@ pub async fn handle_socket(
     state: Arc<AppState>,
     session_id: Uuid,
     name: String,
+    role: String,
     owner_key: Option<String>,
     socket: WebSocket,
 ) {
@@ -54,6 +55,9 @@ pub async fn handle_socket(
             .await;
         return;
     }
+
+    // Store the participant's role for RBAC enforcement in command dispatch
+    state.set_participant_role(session_id, &name, &role).await;
 
     // Determine session ownership:
     // 1. If valid owner_key provided → force this participant as owner
@@ -152,15 +156,23 @@ pub async fn handle_socket(
     // Read messages from WS client and dispatch.
     // The authenticated `name` from the WebSocket connection is passed as the verified
     // author, overriding any client-supplied author field to prevent impersonation.
+    // The `role` is passed for RBAC enforcement in command dispatch.
     let recv_state = state.clone();
     let recv_name = name.clone();
+    let recv_role = role;
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
             match msg {
                 Message::Text(text) => {
                     if let Ok(client_msg) = serde_json::from_str::<ClientMsg>(&text) {
-                        commands::dispatch(recv_state.clone(), session_id, client_msg, &recv_name)
-                            .await;
+                        commands::dispatch(
+                            recv_state.clone(),
+                            session_id,
+                            client_msg,
+                            &recv_name,
+                            &recv_role,
+                        )
+                        .await;
                     }
                 }
                 Message::Close(_) => break,

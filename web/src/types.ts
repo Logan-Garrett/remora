@@ -254,3 +254,36 @@ export interface AuthResponse {
   refresh_token: string;
   user: AuthUser;
 }
+
+// ── Team types ──────────────────────────────────────────────────────────────
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  daily_token_cap: number;
+  created_at: string;
+}
+
+export interface TeamMember {
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  joined_at: string;
+}
+
+// ── Dashboard types ─────────────────────────────────────────────────────────
+
+export interface DashboardSession {
+  id: string;
+  description: string;
+  created_at: string;
+  status: string;
+  team_name: string | null;
+}
+
+export interface DashboardResponse {
+  user: AuthUser;
+  sessions: DashboardSession[];
+}
