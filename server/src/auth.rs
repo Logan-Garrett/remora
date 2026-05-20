@@ -238,14 +238,39 @@ fn extract_user_from_jwt(headers: &axum::http::HeaderMap, secret: &str) -> Optio
     decode_jwt(token, secret)
 }
 
+/// Extract the client IP from request headers. Checks `X-Forwarded-For` first,
+/// then `X-Real-IP`, falling back to `127.0.0.1` if neither is present.
+fn extract_client_ip(headers: &axum::http::HeaderMap) -> std::net::IpAddr {
+    // X-Forwarded-For may contain a comma-separated list; take the first entry.
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        if let Some(first) = xff.split(',').next() {
+            if let Ok(ip) = first.trim().parse::<std::net::IpAddr>() {
+                return ip;
+            }
+        }
+    }
+    if let Some(xri) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        if let Ok(ip) = xri.trim().parse::<std::net::IpAddr>() {
+            return ip;
+        }
+    }
+    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+}
+
 // ---------------------------------------------------------------------------
 // REST handlers
 // ---------------------------------------------------------------------------
 
 pub async fn register(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<RegisterBody>,
 ) -> impl IntoResponse {
+    let ip = extract_client_ip(&headers);
+    if !state.rate_limiter.check(ip, "register", 5).await {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response();
+    }
+
     if body.email.is_empty() || body.password.is_empty() || body.display_name.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -319,8 +344,14 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<LoginBody>,
 ) -> impl IntoResponse {
+    let ip = extract_client_ip(&headers);
+    if !state.rate_limiter.check(ip, "login", 10).await {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response();
+    }
+
     if body.email.is_empty() || body.password.is_empty() {
         return (StatusCode::BAD_REQUEST, "email and password required").into_response();
     }
@@ -389,8 +420,14 @@ pub async fn login(
 
 pub async fn refresh(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<RefreshBody>,
 ) -> impl IntoResponse {
+    let ip = extract_client_ip(&headers);
+    if !state.rate_limiter.check(ip, "refresh", 30).await {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response();
+    }
+
     if body.refresh_token.is_empty() {
         return (StatusCode::BAD_REQUEST, "refresh_token required").into_response();
     }
@@ -597,8 +634,14 @@ pub struct OAuthRedirectParams {
 
 pub async fn oauth_github_redirect(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<OAuthRedirectParams>,
 ) -> impl IntoResponse {
+    let ip = extract_client_ip(&headers);
+    if !state.rate_limiter.check(ip, "oauth_github", 20).await {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response();
+    }
+
     let (client_id, _) = match (
         &state.config.oauth_github_client_id,
         &state.config.oauth_github_client_secret,
@@ -726,8 +769,14 @@ pub async fn oauth_github_callback(
 
 pub async fn oauth_google_redirect(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<OAuthRedirectParams>,
 ) -> impl IntoResponse {
+    let ip = extract_client_ip(&headers);
+    if !state.rate_limiter.check(ip, "oauth_google", 20).await {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response();
+    }
+
     let (client_id, _) = match (
         &state.config.oauth_google_client_id,
         &state.config.oauth_google_client_secret,
