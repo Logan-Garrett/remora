@@ -269,7 +269,7 @@ export function renderLogin(
           setLoading(false);
           return;
         }
-        completeLogin({ url, token, name });
+        completeLogin({ url, token, name, isAdmin: true });
       } else if (mode === "login") {
         const email = emailInput.value.trim();
         const password = passwordInput.value;
@@ -280,7 +280,7 @@ export function renderLogin(
         }
         const auth = await authLogin(url, email, password);
         completeLogin(
-          { url, token: auth.access_token, name: auth.user.display_name },
+          { url, token: auth.access_token, name: auth.user.display_name, isAdmin: auth.user.role === "admin" },
           auth.refresh_token
         );
       } else {
@@ -301,7 +301,7 @@ export function renderLogin(
         // Auto-login after registration
         const auth = await authLogin(url, email, password);
         completeLogin(
-          { url, token: auth.access_token, name: auth.user.display_name },
+          { url, token: auth.access_token, name: auth.user.display_name, isAdmin: auth.user.role === "admin" },
           auth.refresh_token
         );
       }
@@ -326,7 +326,7 @@ export function renderLogin(
       (auth) => {
         setLoading(false);
         completeLogin(
-          { url, token: auth.access_token, name: auth.user.display_name },
+          { url, token: auth.access_token, name: auth.user.display_name, isAdmin: auth.user.role === "admin" },
           auth.refresh_token
         );
       },

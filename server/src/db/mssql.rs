@@ -8,7 +8,10 @@ use tiberius::{AuthMethod, Config};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use super::{Database, NotificationRx};
+use super::{
+    AdminSessionInfo, AuditEvent, Database, GlobalUsage, MetricsData, NotificationRx, RunAnalytics,
+    SessionRunCount, SessionUsage,
+};
 
 pub struct MssqlDb {
     pool: Pool<ConnectionManager>,
@@ -1903,6 +1906,294 @@ impl Database for MssqlDb {
             result.push((id, desc, created, status, team_name));
         }
         Ok(result)
+    }
+
+    // -- Phase 4: admin & observability --
+
+    async fn get_usage_summary(&self) -> anyhow::Result<Vec<SessionUsage>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT id, description, COALESCE(tokens_used_today, 0), \
+                 COALESCE(daily_token_cap, 999999999), \
+                 COALESCE(CONVERT(VARCHAR, tokens_reset_date, 23), CONVERT(VARCHAR, GETDATE(), 23)) \
+                 FROM sessions ORDER BY tokens_used_today DESC",
+                &[],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let session_id = col_uuid(row, 0)?;
+            let description = col_str(row, 1)?;
+            let tokens_used_today = col_i64(row, 2)?;
+            let daily_token_cap = col_i64(row, 3)?;
+            let tokens_reset_date = col_str(row, 4)?;
+            result.push(SessionUsage {
+                session_id,
+                description,
+                tokens_used_today,
+                daily_token_cap,
+                tokens_reset_date,
+            });
+        }
+        Ok(result)
+    }
+
+    async fn get_global_usage_summary(&self) -> anyhow::Result<GlobalUsage> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT \
+                 (SELECT COALESCE(SUM(tokens_used_today), 0) FROM sessions WHERE CONVERT(DATE, tokens_reset_date) = CONVERT(DATE, GETDATE())), \
+                 (SELECT COUNT(*) FROM sessions), \
+                 (SELECT COUNT(*) FROM sessions WHERE status = 'active')",
+                &[],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let row = rows
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("no result from global usage query"))?;
+        Ok(GlobalUsage {
+            total_tokens_today: col_i64(row, 0)?,
+            total_sessions: col_i64(row, 1)?,
+            active_sessions: col_i64(row, 2)?,
+        })
+    }
+
+    async fn get_run_analytics(&self) -> anyhow::Result<RunAnalytics> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT \
+                 (SELECT COUNT(*) FROM session_runs), \
+                 (SELECT COUNT(*) FROM session_runs WHERE status = 'success'), \
+                 (SELECT COUNT(*) FROM session_runs WHERE status = 'failed'), \
+                 (SELECT COUNT(*) FROM session_runs WHERE status = 'timeout'), \
+                 (SELECT COALESCE(AVG(CAST(DATEDIFF(SECOND, started_at, finished_at) AS FLOAT)), 0.0) FROM session_runs WHERE finished_at IS NOT NULL)",
+                &[],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let row = rows
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("no result from run analytics query"))?;
+        let total_runs = col_i64(row, 0)?;
+        let successful = col_i64(row, 1)?;
+        let failed = col_i64(row, 2)?;
+        let timed_out = col_i64(row, 3)?;
+        let avg_duration_secs: f64 = row.try_get::<f64, _>(4)?.unwrap_or(0.0);
+
+        let session_rows = conn
+            .query(
+                "SELECT TOP 20 session_id, COUNT(*) FROM session_runs \
+                 GROUP BY session_id ORDER BY COUNT(*) DESC",
+                &[],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut runs_by_session = Vec::new();
+        for r in &session_rows {
+            let session_id = col_uuid(r, 0)?;
+            let run_count: i32 = r.try_get::<i32, _>(1)?.unwrap_or(0);
+            runs_by_session.push(SessionRunCount {
+                session_id,
+                run_count: run_count as i64,
+            });
+        }
+
+        Ok(RunAnalytics {
+            total_runs,
+            successful,
+            failed,
+            timed_out,
+            avg_duration_secs,
+            runs_by_session,
+        })
+    }
+
+    async fn list_all_sessions_admin(&self) -> anyhow::Result<Vec<AdminSessionInfo>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT id, description, created_at, status, \
+                 COALESCE(tokens_used_today, 0), COALESCE(daily_token_cap, 999999999) \
+                 FROM sessions ORDER BY created_at DESC",
+                &[],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            result.push(AdminSessionInfo {
+                id: col_uuid(row, 0)?,
+                description: col_str(row, 1)?,
+                created_at: col_datetime(row, 2)?,
+                status: col_str(row, 3)?,
+                tokens_used_today: col_i64(row, 4)?,
+                daily_token_cap: col_i64(row, 5)?,
+            });
+        }
+        Ok(result)
+    }
+
+    async fn update_session_quota(
+        &self,
+        session_id: Uuid,
+        daily_token_cap: i64,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_sid = tiberius::Uuid::from_bytes(*session_id.as_bytes());
+        conn.execute(
+            "UPDATE sessions SET daily_token_cap = @P1 WHERE id = @P2",
+            &[&daily_token_cap, &tib_sid],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn list_all_users(&self) -> anyhow::Result<Vec<User>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT id, email, display_name, role, created_at FROM users ORDER BY created_at",
+                &[],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            result.push(User {
+                id: col_uuid(row, 0)?,
+                email: col_str(row, 1)?,
+                display_name: col_str(row, 2)?,
+                role: col_str(row, 3)?,
+                created_at: col_datetime(row, 4)?,
+            });
+        }
+        Ok(result)
+    }
+
+    async fn update_user_role(&self, user_id: Uuid, role: &str) -> anyhow::Result<()> {
+        let mut conn = self.conn().await?;
+        let tib_uid = tiberius::Uuid::from_bytes(*user_id.as_bytes());
+        conn.execute(
+            "UPDATE users SET role = @P1 WHERE id = @P2",
+            &[&role, &tib_uid],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn insert_audit_event(
+        &self,
+        user_id: Option<Uuid>,
+        action: &str,
+        target_type: &str,
+        target_id: Option<&str>,
+        details: Option<Value>,
+        ip_address: Option<&str>,
+    ) -> anyhow::Result<i64> {
+        let mut conn = self.conn().await?;
+        let tib_uid = user_id.map(|u| tiberius::Uuid::from_bytes(*u.as_bytes()));
+        let details_str = details.map(|d| serde_json::to_string(&d).unwrap_or_default());
+        let rows = conn
+            .query(
+                "INSERT INTO audit_events (user_id, action, target_type, target_id, details, ip_address) \
+                 OUTPUT INSERTED.id \
+                 VALUES (@P1, @P2, @P3, @P4, @P5, @P6)",
+                &[
+                    &tib_uid,
+                    &action,
+                    &target_type,
+                    &target_id,
+                    &details_str.as_deref(),
+                    &ip_address,
+                ],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let id = rows
+            .first()
+            .and_then(|r| r.try_get::<i64, _>(0).ok().flatten())
+            .ok_or_else(|| anyhow::anyhow!("insert_audit_event: no id returned"))?;
+        Ok(id)
+    }
+
+    async fn list_audit_events(&self, limit: i64, offset: i64) -> anyhow::Result<Vec<AuditEvent>> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT id, user_id, action, target_type, target_id, details, ip_address, created_at \
+                 FROM audit_events ORDER BY id DESC \
+                 OFFSET @P1 ROWS FETCH NEXT @P2 ROWS ONLY",
+                &[&offset, &limit],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let mut result = Vec::new();
+        for row in &rows {
+            let id = col_i64(row, 0)?;
+            let user_id = row
+                .try_get::<tiberius::Uuid, _>(1)?
+                .map(|g| Uuid::from_bytes(*g.as_bytes()));
+            let action = col_str(row, 2)?;
+            let target_type = col_str(row, 3)?;
+            let target_id = col_str_opt(row, 4)?;
+            let details_str = col_str_opt(row, 5)?;
+            let details = details_str.and_then(|s| serde_json::from_str(&s).ok());
+            let ip_address = col_str_opt(row, 6)?;
+            let created_at = col_datetime(row, 7)?;
+            result.push(AuditEvent {
+                id,
+                user_id,
+                action,
+                target_type,
+                target_id,
+                details,
+                ip_address,
+                created_at,
+            });
+        }
+        Ok(result)
+    }
+
+    async fn get_metrics_data(&self) -> anyhow::Result<MetricsData> {
+        let mut conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT \
+                 (SELECT COUNT(*) FROM sessions), \
+                 (SELECT COUNT(*) FROM sessions WHERE status = 'active'), \
+                 (SELECT COALESCE(SUM(tokens_used_today), 0) FROM sessions WHERE CONVERT(DATE, tokens_reset_date) = CONVERT(DATE, GETDATE())), \
+                 (SELECT COUNT(*) FROM session_runs WHERE status = 'success'), \
+                 (SELECT COUNT(*) FROM session_runs WHERE status = 'failed'), \
+                 (SELECT COUNT(*) FROM session_runs WHERE status = 'timeout')",
+                &[],
+            )
+            .await?
+            .into_first_result()
+            .await?;
+        let row = rows
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("no result from metrics query"))?;
+        Ok(MetricsData {
+            sessions_total: col_i64(row, 0)?,
+            sessions_active: col_i64(row, 1)?,
+            tokens_used_total: col_i64(row, 2)?,
+            runs_successful: col_i64(row, 3)?,
+            runs_failed: col_i64(row, 4)?,
+            runs_timed_out: col_i64(row, 5)?,
+        })
     }
 
     // -- notifications --

@@ -4,6 +4,7 @@
 //! exposes the internal modules so that `tests/` integration tests
 //! can build routers, create `AppState`, etc.
 
+pub mod admin;
 pub mod auth;
 pub mod claude;
 pub mod commands;
@@ -1166,6 +1167,23 @@ pub fn build_router(shared: Arc<AppState>) -> Router {
         .route("/teams/:id/sessions", get(list_team_sessions))
         // Dashboard
         .route("/dashboard", get(user_dashboard))
+        // Admin endpoints
+        .route("/admin/usage", get(admin::get_usage))
+        .route("/admin/analytics", get(admin::get_analytics))
+        .route("/admin/sessions", get(admin::list_sessions))
+        .route(
+            "/admin/sessions/:id/quota",
+            put(admin::update_session_quota),
+        )
+        .route("/admin/sessions/:id", delete(admin::force_delete_session))
+        .route(
+            "/admin/sessions/:id/expire",
+            post(admin::force_expire_session),
+        )
+        .route("/admin/users", get(admin::list_users))
+        .route("/admin/users/:id/role", put(admin::update_user_role))
+        .route("/admin/audit", get(admin::list_audit_events))
+        .route("/metrics", get(admin::metrics))
         .layer(ConcurrencyLimitLayer::new(100))
         // NOTE: Permissive CORS is a pre-existing configuration (predates auth branch).
         // Should be tightened to specific origins in production. Tracked separately.

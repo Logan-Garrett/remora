@@ -8,7 +8,10 @@ use std::str::FromStr;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use super::{Database, NotificationRx};
+use super::{
+    AdminSessionInfo, AuditEvent, Database, GlobalUsage, MetricsData, NotificationRx, RunAnalytics,
+    SessionRunCount, SessionUsage,
+};
 
 pub struct SqliteDb {
     pool: SqlitePool,
@@ -1450,6 +1453,284 @@ impl Database for SqliteDb {
                 Ok((uuid, desc, dt, status, team_name))
             })
             .collect()
+    }
+
+    // -- Phase 4: admin & observability --
+
+    async fn get_usage_summary(&self) -> anyhow::Result<Vec<SessionUsage>> {
+        let rows: Vec<(String, String, i64, i64, String)> = sqlx::query_as(
+            "SELECT id, description, COALESCE(tokens_used_today, 0), \
+             COALESCE(daily_token_cap, 999999999), \
+             COALESCE(tokens_reset_date, date('now')) \
+             FROM sessions ORDER BY tokens_used_today DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(
+                |(id, description, tokens_used_today, daily_token_cap, tokens_reset_date)| {
+                    Ok(SessionUsage {
+                        session_id: id.parse()?,
+                        description,
+                        tokens_used_today,
+                        daily_token_cap,
+                        tokens_reset_date,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    async fn get_global_usage_summary(&self) -> anyhow::Result<GlobalUsage> {
+        let (total_tokens_today,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(tokens_used_today), 0) FROM sessions \
+             WHERE date(tokens_reset_date) = date('now')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let (total_sessions,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&self.pool)
+            .await?;
+        let (active_sessions,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE status = 'active'")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(GlobalUsage {
+            total_tokens_today,
+            total_sessions,
+            active_sessions,
+        })
+    }
+
+    async fn get_run_analytics(&self) -> anyhow::Result<RunAnalytics> {
+        let (total_runs,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM session_runs")
+            .fetch_one(&self.pool)
+            .await?;
+        let (successful,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_runs WHERE status = 'success'")
+                .fetch_one(&self.pool)
+                .await?;
+        let (failed,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_runs WHERE status = 'failed'")
+                .fetch_one(&self.pool)
+                .await?;
+        let (timed_out,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_runs WHERE status = 'timeout'")
+                .fetch_one(&self.pool)
+                .await?;
+        let (avg_duration_secs,): (f64,) = sqlx::query_as(
+            "SELECT COALESCE(AVG(CAST((julianday(finished_at) - julianday(started_at)) * 86400 AS REAL)), 0.0) \
+             FROM session_runs WHERE finished_at IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let session_rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT session_id, COUNT(*) FROM session_runs \
+             GROUP BY session_id ORDER BY COUNT(*) DESC LIMIT 20",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let runs_by_session = session_rows
+            .into_iter()
+            .filter_map(|(sid, count)| {
+                sid.parse::<Uuid>().ok().map(|session_id| SessionRunCount {
+                    session_id,
+                    run_count: count,
+                })
+            })
+            .collect();
+
+        Ok(RunAnalytics {
+            total_runs,
+            successful,
+            failed,
+            timed_out,
+            avg_duration_secs,
+            runs_by_session,
+        })
+    }
+
+    async fn list_all_sessions_admin(&self) -> anyhow::Result<Vec<AdminSessionInfo>> {
+        let rows: Vec<(String, String, String, String, i64, i64)> = sqlx::query_as(
+            "SELECT id, description, created_at, status, \
+             COALESCE(tokens_used_today, 0), COALESCE(daily_token_cap, 999999999) \
+             FROM sessions ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(
+                |(id, description, ts, status, tokens_used_today, daily_token_cap)| {
+                    let uuid = id.parse::<Uuid>()?;
+                    let dt = DateTime::parse_from_rfc3339(&ts)
+                        .map(|d| d.with_timezone(&Utc))
+                        .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                    Ok(AdminSessionInfo {
+                        id: uuid,
+                        description,
+                        created_at: dt,
+                        status,
+                        tokens_used_today,
+                        daily_token_cap,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    async fn update_session_quota(
+        &self,
+        session_id: Uuid,
+        daily_token_cap: i64,
+    ) -> anyhow::Result<()> {
+        let sid = session_id.to_string();
+        sqlx::query("UPDATE sessions SET daily_token_cap = ?1 WHERE id = ?2")
+            .bind(daily_token_cap)
+            .bind(&sid)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_all_users(&self) -> anyhow::Result<Vec<User>> {
+        let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+            "SELECT id, email, display_name, role, created_at FROM users ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|(id, email, display_name, role, ts)| {
+                let uuid = id.parse::<Uuid>()?;
+                let dt = DateTime::parse_from_rfc3339(&ts)
+                    .map(|d| d.with_timezone(&Utc))
+                    .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                Ok(User {
+                    id: uuid,
+                    email,
+                    display_name,
+                    role,
+                    created_at: dt,
+                })
+            })
+            .collect()
+    }
+
+    async fn update_user_role(&self, user_id: Uuid, role: &str) -> anyhow::Result<()> {
+        let uid = user_id.to_string();
+        sqlx::query("UPDATE users SET role = ?1 WHERE id = ?2")
+            .bind(role)
+            .bind(&uid)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn insert_audit_event(
+        &self,
+        user_id: Option<Uuid>,
+        action: &str,
+        target_type: &str,
+        target_id: Option<&str>,
+        details: Option<Value>,
+        ip_address: Option<&str>,
+    ) -> anyhow::Result<i64> {
+        let uid = user_id.map(|u| u.to_string());
+        let details_str = details.map(|d| serde_json::to_string(&d).unwrap_or_default());
+        let id: (i64,) = sqlx::query_as(
+            "INSERT INTO audit_events (user_id, action, target_type, target_id, details, ip_address) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id",
+        )
+        .bind(uid.as_deref())
+        .bind(action)
+        .bind(target_type)
+        .bind(target_id)
+        .bind(details_str.as_deref())
+        .bind(ip_address)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id.0)
+    }
+
+    async fn list_audit_events(&self, limit: i64, offset: i64) -> anyhow::Result<Vec<AuditEvent>> {
+        let rows: Vec<(
+            i64,
+            Option<String>,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+        )> = sqlx::query_as(
+            "SELECT id, user_id, action, target_type, target_id, details, ip_address, created_at \
+                 FROM audit_events ORDER BY id DESC LIMIT ?1 OFFSET ?2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(
+                |(id, user_id_str, action, target_type, target_id, details_str, ip_address, ts)| {
+                    let user_id = user_id_str.and_then(|s| s.parse::<Uuid>().ok());
+                    let details = details_str.and_then(|s| serde_json::from_str(&s).ok());
+                    let created_at = DateTime::parse_from_rfc3339(&ts)
+                        .map(|d| d.with_timezone(&Utc))
+                        .or_else(|_| ts.parse::<NaiveDateTime>().map(|nd| nd.and_utc()))?;
+                    Ok(AuditEvent {
+                        id,
+                        user_id,
+                        action,
+                        target_type,
+                        target_id,
+                        details,
+                        ip_address,
+                        created_at,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    async fn get_metrics_data(&self) -> anyhow::Result<MetricsData> {
+        let (sessions_total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&self.pool)
+            .await?;
+        let (sessions_active,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE status = 'active'")
+                .fetch_one(&self.pool)
+                .await?;
+        let (tokens_used_total,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(tokens_used_today), 0) FROM sessions \
+             WHERE date(tokens_reset_date) = date('now')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let (runs_successful,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_runs WHERE status = 'success'")
+                .fetch_one(&self.pool)
+                .await?;
+        let (runs_failed,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_runs WHERE status = 'failed'")
+                .fetch_one(&self.pool)
+                .await?;
+        let (runs_timed_out,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_runs WHERE status = 'timeout'")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(MetricsData {
+            sessions_total,
+            sessions_active,
+            tokens_used_total,
+            runs_successful,
+            runs_failed,
+            runs_timed_out,
+        })
     }
 
     // -- notifications --

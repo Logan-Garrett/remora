@@ -1,6 +1,7 @@
 import { renderLogin, clearConfig } from "./login";
 import { renderSessions } from "./sessions";
 import { renderChat } from "./chat";
+import { renderAdmin } from "./admin";
 import type { ConnectionConfig, SessionInfo } from "./types";
 
 if ("serviceWorker" in navigator) {
@@ -27,8 +28,15 @@ function showSessions(config: ConnectionConfig): void {
     () => {
       clearConfig();
       showLogin();
-    }
+    },
+    config.isAdmin ? () => showAdmin(config) : undefined
   );
+}
+
+function showAdmin(config: ConnectionConfig): void {
+  renderAdmin(app, config, () => {
+    showSessions(config);
+  });
 }
 
 function showChat(config: ConnectionConfig, session: SessionInfo): void {

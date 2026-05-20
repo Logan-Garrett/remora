@@ -1,4 +1,13 @@
-import type { SessionInfo, ConnectionConfig, AuthResponse } from "./types";
+import type {
+  SessionInfo,
+  ConnectionConfig,
+  AuthResponse,
+  UsageResponse,
+  RunAnalytics,
+  AdminSessionInfo,
+  AdminUser,
+  AuditEvent,
+} from "./types";
 
 export async function fetchHealth(baseUrl: string): Promise<boolean> {
   try {
@@ -113,6 +122,97 @@ export async function authLogin(
     const text = await resp.text();
     throw new Error(text || `Login failed (${resp.status})`);
   }
+  return resp.json();
+}
+
+// ── Admin API ────────────────────────────────────────────────────────────────
+
+function adminHeaders(config: ConnectionConfig): Record<string, string> {
+  return { Authorization: `Bearer ${config.token}` };
+}
+
+export async function adminGetUsage(config: ConnectionConfig): Promise<UsageResponse> {
+  const resp = await fetch(`${config.url}/admin/usage`, { headers: adminHeaders(config) });
+  if (!resp.ok) throw new Error(`Admin usage: ${resp.status}`);
+  return resp.json();
+}
+
+export async function adminGetAnalytics(config: ConnectionConfig): Promise<RunAnalytics> {
+  const resp = await fetch(`${config.url}/admin/analytics`, { headers: adminHeaders(config) });
+  if (!resp.ok) throw new Error(`Admin analytics: ${resp.status}`);
+  return resp.json();
+}
+
+export async function adminListSessions(config: ConnectionConfig): Promise<AdminSessionInfo[]> {
+  const resp = await fetch(`${config.url}/admin/sessions`, { headers: adminHeaders(config) });
+  if (!resp.ok) throw new Error(`Admin sessions: ${resp.status}`);
+  return resp.json();
+}
+
+export async function adminUpdateQuota(
+  config: ConnectionConfig,
+  sessionId: string,
+  dailyTokenCap: number
+): Promise<void> {
+  const resp = await fetch(`${config.url}/admin/sessions/${sessionId}/quota`, {
+    method: "PUT",
+    headers: { ...adminHeaders(config), "Content-Type": "application/json" },
+    body: JSON.stringify({ daily_token_cap: dailyTokenCap }),
+  });
+  if (!resp.ok) throw new Error(`Update quota: ${resp.status}`);
+}
+
+export async function adminDeleteSession(
+  config: ConnectionConfig,
+  sessionId: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/admin/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: adminHeaders(config),
+  });
+  if (!resp.ok && resp.status !== 204) throw new Error(`Delete session: ${resp.status}`);
+}
+
+export async function adminExpireSession(
+  config: ConnectionConfig,
+  sessionId: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/admin/sessions/${sessionId}/expire`, {
+    method: "POST",
+    headers: adminHeaders(config),
+  });
+  if (!resp.ok) throw new Error(`Expire session: ${resp.status}`);
+}
+
+export async function adminListUsers(config: ConnectionConfig): Promise<AdminUser[]> {
+  const resp = await fetch(`${config.url}/admin/users`, { headers: adminHeaders(config) });
+  if (!resp.ok) throw new Error(`Admin users: ${resp.status}`);
+  return resp.json();
+}
+
+export async function adminUpdateUserRole(
+  config: ConnectionConfig,
+  userId: string,
+  role: string
+): Promise<void> {
+  const resp = await fetch(`${config.url}/admin/users/${userId}/role`, {
+    method: "PUT",
+    headers: { ...adminHeaders(config), "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  if (!resp.ok) throw new Error(`Update role: ${resp.status}`);
+}
+
+export async function adminListAuditEvents(
+  config: ConnectionConfig,
+  limit = 50,
+  offset = 0
+): Promise<AuditEvent[]> {
+  const resp = await fetch(
+    `${config.url}/admin/audit?limit=${limit}&offset=${offset}`,
+    { headers: adminHeaders(config) }
+  );
+  if (!resp.ok) throw new Error(`Audit events: ${resp.status}`);
   return resp.json();
 }
 

@@ -346,6 +346,7 @@ describe("OAuth popup security", () => {
       url: "https://remora.example.com",
       token: "jwt-token-123",
       name: "Dev User",
+      isAdmin: false,
     });
   });
 });

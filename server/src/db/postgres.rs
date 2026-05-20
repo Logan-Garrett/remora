@@ -6,7 +6,10 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::{Database, NotificationRx};
+use super::{
+    AdminSessionInfo, AuditEvent, Database, GlobalUsage, MetricsData, NotificationRx, RunAnalytics,
+    SessionRunCount, SessionUsage,
+};
 
 pub struct PostgresDb {
     pool: PgPool,
@@ -1131,6 +1134,246 @@ impl Database for PostgresDb {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
+    }
+
+    // -- Phase 4: admin & observability --
+
+    async fn get_usage_summary(&self) -> anyhow::Result<Vec<SessionUsage>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, i64, i64, String)>(
+            "SELECT id, description, COALESCE(tokens_used_today, 0), \
+             COALESCE(daily_token_cap, 1000000), \
+             COALESCE(tokens_reset_date::TEXT, CURRENT_DATE::TEXT) \
+             FROM sessions ORDER BY tokens_used_today DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    session_id,
+                    description,
+                    tokens_used_today,
+                    daily_token_cap,
+                    tokens_reset_date,
+                )| {
+                    SessionUsage {
+                        session_id,
+                        description,
+                        tokens_used_today,
+                        daily_token_cap,
+                        tokens_reset_date,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn get_global_usage_summary(&self) -> anyhow::Result<GlobalUsage> {
+        let row = sqlx::query_as::<_, (i64, i64, i64)>(
+            "SELECT \
+             (SELECT COALESCE(SUM(tokens_used_today), 0)::BIGINT FROM sessions \
+              WHERE date(tokens_reset_date) = CURRENT_DATE), \
+             (SELECT COUNT(*) FROM sessions), \
+             (SELECT COUNT(*) FROM sessions WHERE status = 'active')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(GlobalUsage {
+            total_tokens_today: row.0,
+            total_sessions: row.1,
+            active_sessions: row.2,
+        })
+    }
+
+    async fn get_run_analytics(&self) -> anyhow::Result<RunAnalytics> {
+        let row = sqlx::query_as::<_, (i64, i64, i64, i64, f64)>(
+            "SELECT \
+             (SELECT COUNT(*) FROM session_runs), \
+             (SELECT COUNT(*) FROM session_runs WHERE status = 'success'), \
+             (SELECT COUNT(*) FROM session_runs WHERE status = 'failed'), \
+             (SELECT COUNT(*) FROM session_runs WHERE status = 'timeout'), \
+             (SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (finished_at - started_at))), 0.0) \
+              FROM session_runs WHERE finished_at IS NOT NULL)",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let session_rows = sqlx::query_as::<_, (Uuid, i64)>(
+            "SELECT session_id, COUNT(*) FROM session_runs \
+             GROUP BY session_id ORDER BY COUNT(*) DESC LIMIT 20",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let runs_by_session = session_rows
+            .into_iter()
+            .map(|(session_id, run_count)| SessionRunCount {
+                session_id,
+                run_count,
+            })
+            .collect();
+
+        Ok(RunAnalytics {
+            total_runs: row.0,
+            successful: row.1,
+            failed: row.2,
+            timed_out: row.3,
+            avg_duration_secs: row.4,
+            runs_by_session,
+        })
+    }
+
+    async fn list_all_sessions_admin(&self) -> anyhow::Result<Vec<AdminSessionInfo>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, DateTime<Utc>, String, i64, i64)>(
+            "SELECT id, description, created_at, status, \
+             COALESCE(tokens_used_today, 0), COALESCE(daily_token_cap, 1000000) \
+             FROM sessions ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, description, created_at, status, tokens_used_today, daily_token_cap)| {
+                    AdminSessionInfo {
+                        id,
+                        description,
+                        created_at,
+                        status,
+                        tokens_used_today,
+                        daily_token_cap,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn update_session_quota(
+        &self,
+        session_id: Uuid,
+        daily_token_cap: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET daily_token_cap = $1 WHERE id = $2")
+            .bind(daily_token_cap)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn list_all_users(&self) -> anyhow::Result<Vec<User>> {
+        let rows = sqlx::query_as::<_, (Uuid, String, String, String, DateTime<Utc>)>(
+            "SELECT id, email, display_name, role, created_at FROM users ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, email, display_name, role, created_at)| User {
+                id,
+                email,
+                display_name,
+                role,
+                created_at,
+            })
+            .collect())
+    }
+
+    async fn update_user_role(&self, user_id: Uuid, role: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
+            .bind(role)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn insert_audit_event(
+        &self,
+        user_id: Option<Uuid>,
+        action: &str,
+        target_type: &str,
+        target_id: Option<&str>,
+        details: Option<Value>,
+        ip_address: Option<&str>,
+    ) -> anyhow::Result<i64> {
+        let id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO audit_events (user_id, action, target_type, target_id, details, ip_address) \
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        )
+        .bind(user_id)
+        .bind(action)
+        .bind(target_type)
+        .bind(target_id)
+        .bind(details)
+        .bind(ip_address)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    async fn list_audit_events(&self, limit: i64, offset: i64) -> anyhow::Result<Vec<AuditEvent>> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                i64,
+                Option<Uuid>,
+                String,
+                String,
+                Option<String>,
+                Option<Value>,
+                Option<String>,
+                DateTime<Utc>,
+            ),
+        >(
+            "SELECT id, user_id, action, target_type, target_id, details, ip_address, created_at \
+             FROM audit_events ORDER BY id DESC LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, user_id, action, target_type, target_id, details, ip_address, created_at)| {
+                    AuditEvent {
+                        id,
+                        user_id,
+                        action,
+                        target_type,
+                        target_id,
+                        details,
+                        ip_address,
+                        created_at,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn get_metrics_data(&self) -> anyhow::Result<MetricsData> {
+        let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+            "SELECT \
+             (SELECT COUNT(*) FROM sessions), \
+             (SELECT COUNT(*) FROM sessions WHERE status = 'active'), \
+             (SELECT COALESCE(SUM(tokens_used_today), 0)::BIGINT FROM sessions \
+              WHERE date(tokens_reset_date) = CURRENT_DATE), \
+             (SELECT COUNT(*) FROM session_runs WHERE status = 'success'), \
+             (SELECT COUNT(*) FROM session_runs WHERE status = 'failed'), \
+             (SELECT COUNT(*) FROM session_runs WHERE status = 'timeout')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(MetricsData {
+            sessions_total: row.0,
+            sessions_active: row.1,
+            tokens_used_total: row.2,
+            runs_successful: row.3,
+            runs_failed: row.4,
+            runs_timed_out: row.5,
+        })
     }
 
     // -- notifications --
