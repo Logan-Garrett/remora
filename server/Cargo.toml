@@ -9,14 +9,14 @@ path = "src/main.rs"
 
 [dependencies]
 remora-common = { path = "../common" }
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.8", features = ["ws"] }
 tower = { version = "0.5", features = ["limit"] }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "sqlite", "uuid", "chrono", "json", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "sqlite", "uuid", "chrono", "json", "migrate"] }
 async-trait = "0.1"
 tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
@@ -28,11 +28,11 @@ argon2 = "0.5"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 oauth2 = "5.0.0-rc.1"
 hex = "0.4"
-sha2 = "0.10"
-hmac = "0.12"
+sha2 = "0.11"
+hmac = "0.13"
 urlencoding = "2"
 base64 = "0.22"
-rand = "0.8"
+rand = "0.10"
 tokio-util = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 url = "2"
@@ -45,7 +45,7 @@ default = []
 mssql = ["dep:tiberius", "dep:bb8", "dep:bb8-tiberius"]
 
 [dev-dependencies]
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 tempfile = "3"
 futures-util = "0.3"
