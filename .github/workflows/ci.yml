@@ -28,8 +28,8 @@ jobs:
     name: Spell check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: crate-ci/typos@f8a58b6b53f2279f71eb605f03a4ae4d10608f45 # master
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: crate-ci/typos@37bb98842b0d8c4ffebdb75301a13db0267cef89 # master
 
   # ── Path filter — skip irrelevant jobs ─────────────────────────────
   changes:
@@ -41,7 +41,7 @@ jobs:
       plugin: ${{ steps.filter.outputs.plugin }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v3
         id: filter
         with:
@@ -75,7 +75,7 @@ jobs:
       REMORA_DB_PROVIDER: sqlite
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy, rustfmt
@@ -111,7 +111,7 @@ jobs:
       REMORA_DB_PROVIDER: postgres
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Create uuid-ossp extension
@@ -148,7 +148,7 @@ jobs:
       REMORA_DB_PROVIDER: mssql
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install sqlcmd
@@ -187,7 +187,7 @@ jobs:
     if: ${{ needs.changes.outputs.plugin == 'true' || needs.changes.outputs.rust == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
         with:
           neovim: true
@@ -203,7 +203,7 @@ jobs:
     if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.rust == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Build sandbox image
         run: docker build -t remora-sandbox -f Dockerfile.sandbox .
       - name: Test container lifecycle
@@ -263,7 +263,7 @@ jobs:
     if: ${{ needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -301,7 +301,7 @@ jobs:
       REMORA_CLAUDE_CMD: echo
       REMORA_WORKSPACE_DIR: /tmp/remora-e2e-workspaces
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -374,7 +374,7 @@ jobs:
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'push' }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
@@ -420,7 +420,7 @@ jobs:
     if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.rust == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -449,7 +449,7 @@ jobs:
       REMORA_DB_PROVIDER: sqlite
       REMORA_TEAM_TOKEN: test-token
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: llvm-tools-preview
@@ -459,7 +459,7 @@ jobs:
       - name: Generate coverage (LCOV)
         run: cargo llvm-cov --all --lcov --output-path lcov.info -- --include-ignored --test-threads=1
       - name: Upload to Codecov
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: lcov.info
           fail_ci_if_error: false
@@ -470,7 +470,7 @@ jobs:
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo build --release
