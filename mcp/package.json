@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "ws": "^8.21.0"
+    "ws": "^8.21.1"
   },
   "overrides": {
     "ip-address": ">=10.1.1"
