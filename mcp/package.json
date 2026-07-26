@@ -17,7 +17,8 @@
     "ws": "^8.21.1"
   },
   "overrides": {
-    "ip-address": ">=10.1.1"
+    "ip-address": ">=10.1.1",
+    "@hono/node-server": ">=2.0.5"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
